@@ -1,0 +1,825 @@
+<div id="fpl-root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const FPL_PROXY = "https://project-h5be9.vercel.app/api/fpl";
+const TEAM_ID = 1036486;
+const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
+const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
+
+const fplFetch = path =>
+  fetch(FPL_PROXY + "?path=" + encodeURIComponent(path))
+    .then(r => { if (!r.ok) throw new Error("HTTP "+r.status); return r.json(); });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ODDS PLUGIN — hämtar riktiga odds via din Vercel-proxy (/api/odds).
+// Proxyn hämtar anytime-goalscorer + clean sheet från Odds-API.io, matchar
+// mot FPL:s id:n och cachar. Nyckeln ligger bara på servern, aldrig här.
+// Modellen använder odds NÄR de finns, annars FPL:s underliggande xG-data.
+// Ingen tyst fallback: oddsStatus visas i UI så du alltid vet vilken källa
+// som gäller. Misslyckas proxyn kastar fetchOdds och UI visar det ärligt.
+//
+// ODDS_PROXY pekar på din route. Ligger boten på samma domän som proxyn
+// (wennerqvist.design) räcker den relativa "/api/odds". Ligger den på annan
+// domän, sätt full URL, t.ex. "https://<ditt-projekt>.vercel.app/api/odds".
+// ═══════════════════════════════════════════════════════════════════════════
+const ODDS_PROXY = "/api/odds";
+const ODDS = {
+  enabled: true,
+  byTeam: {},
+  byPlayer: {},
+  async fetchOdds() {
+    const r = await fetch(ODDS_PROXY);
+    if (!r.ok) throw new Error("Odds-proxy HTTP " + r.status);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    // Nycklar kommer som strängar från JSON — normalisera till heltal så de
+    // matchar FPL:s numeriska team/player-id i modellen.
+    this.byTeam = {};
+    for (const k of Object.keys(d.byTeam || {})) this.byTeam[+k] = d.byTeam[k];
+    this.byPlayer = {};
+    for (const k of Object.keys(d.byPlayer || {})) this.byPlayer[+k] = d.byPlayer[k];
+    // Tomt svar = ingen matchtäckning just nu; behandla som "ej tillgängligt"
+    // istället för att låtsas att odds-modellen är aktiv utan data.
+    if (Object.keys(this.byPlayer).length === 0 && Object.keys(this.byTeam).length === 0) {
+      throw new Error("Odds-proxy gav tomt svar");
+    }
+  }
+};
+
+// ── Fixture-helpers ────────────────────────────────────────────────────────
+function avgFdr(tid,fm,n=5){const fx=(fm[tid]||[]).slice(0,n);return fx.length?fx.reduce((s,f)=>s+f.diff,0)/fx.length:3;}
+function nextFdr(tid,fm){return(fm[tid]||[])[0]?.diff||3;}
+function nextOpp(tid,fm,tb){const f=(fm[tid]||[])[0];return f?`${tb[f.oppId]?.short_name||"?"}(${f.home?"H":"B"})`:"-";}
+function nextIsHome(tid,fm){return(fm[tid]||[])[0]?.home||false;}
+function fxStr(tid,fm,tb,n=5){return(fm[tid]||[]).slice(0,n).map(f=>`GW${f.gw} ${tb[f.oppId]?.short_name}(${f.home?"H":"B"},${f.diff})`).join(" · ");}
+
+// ── Status-helpers ──────────────────────────────────────────────────────────
+function isInjured(p){return p.status==="u"||p.status==="s"||p.status==="i"||p.chance_of_playing_next_round===0;}
+function isDoubtful(p){return p.chance_of_playing_next_round!==null&&p.chance_of_playing_next_round<75&&p.chance_of_playing_next_round>0;}
+
+// ── Formaterings-helpers ────────────────────────────────────────────────────
+function rewardLbl(xp){return xp>=6?"Hög":xp>=4?"Medel":"Låg";}
+function riskFromFdr(d){return d<=2?"Låg":d<=3?"Medel":"Hög";}
+function pdiffStr(a,b){const d=((a-b)/10).toFixed(1);return d>0?`+£${d}m`:d<0?`-£${Math.abs(d)}m`:"Samma pris";}
+function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODELLENS KÄRNA
+//
+// Teori bakom omskrivningen (belagd mot premium-tjänster):
+//  1. xMins (starttrolighet) är den enskilt viktigaste faktorn. En spelare
+//     som inte startar ger 0 poäng oavsett hur bra han är. Vi skattar den
+//     från starts_per_90 + speltid + skadestatus, inte råa totalminuter.
+//  2. Underliggande data (xG/xA per 90) förutspår bättre än `form`, som är
+//     brus på kort sikt (FPL Review: senaste 450 min mål ≈ värdelöst).
+//  3. Clean sheet-potential för DEF/MV skattas från lagets expected_goals_
+//     conceded_per_90 + hemmaplan, inte bara FDR-heltalet.
+//  4. Odds används om ODDS.enabled — annars xG-proxyn. Aldrig tyst blandning.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// xMins: 0..1 sannolikhet att spelaren spelar en meningsfull mängd nästa GW.
+function xMins(p){
+  if(isInjured(p)) return 0;
+  const starts = num(p.starts);
+  const s90 = num(p.starts_per_90);          // starter per 90 spelade min
+  const mins = num(p.minutes);
+  // Bas: hur ofta han startar när han väl är med.
+  let base = s90>0 ? Math.min(s90,1) : (mins>450?0.6:0.3);
+  // Väldigt lite speltid totalt => osäker roll, dämpa.
+  if(mins<270) base *= 0.6;
+  // Osäker (chance_of_playing) skalar direkt.
+  if(p.chance_of_playing_next_round!==null && p.chance_of_playing_next_round<100){
+    base *= (p.chance_of_playing_next_round/100);
+  }
+  return Math.max(0,Math.min(base,1));
+}
+
+// Anfallshot per 90 från underliggande data.
+function attackPer90(p){
+  const xgi90 = num(p.expected_goal_involvements_per_90);
+  if(xgi90>0) return xgi90;
+  // Om per-90 saknas, härled från totaler och minuter (ingen form-fallback).
+  const xgi = num(p.expected_goals)+num(p.expected_assists);
+  const mins = num(p.minutes);
+  return mins>0 ? xgi/(mins/90) : 0;
+}
+
+// Clean sheet-sannolikhet för spelarens lag nästa GW (0..1).
+// Odds om tillgängligt, annars xGC-proxy.
+function cleanSheetProb(p,fm){
+  if(ODDS.enabled && ODDS.byTeam[p.team]?.csProb!=null){
+    return ODDS.byTeam[p.team].csProb;
+  }
+  const xgc90 = num(p.expected_goals_conceded_per_90);
+  const home = nextIsHome(p.team,fm);
+  // Enkel Poisson: P(0 insläppta) = e^(-xGC), justerat för hemmaplan.
+  const lambda = (xgc90>0?xgc90:1.4) * (home?0.88:1.12);
+  return Math.exp(-lambda);
+}
+
+// Förväntad målpoäng-komponent från odds om tillgängligt.
+function oddsAttackXp(p,mult){
+  if(!ODDS.enabled) return null;
+  const o = ODDS.byPlayer[p.id];
+  if(!o) return null;
+  const goalPts = {1:6,2:6,3:5,4:4}[p.element_type]||4;
+  return num(o.anytimeProb)*goalPts + num(o.assistProb)*3*mult;
+}
+
+// ── xP-skattning per spelare nästa GW ───────────────────────────────────────
+// Returnerar { xp, parts } där parts förklarar var poängen kommer ifrån.
+function estimateXp(p,fm){
+  const mins = xMins(p);
+  const apptPts = mins>=0.6 ? 2 : (mins>0 ? 1 : 0); // närvaropoäng viktat av xMins
+  const type = p.element_type;
+
+  // Anfallshot: odds om möjligt, annars xGI-proxy → poäng.
+  let attack;
+  const oddsAtt = oddsAttackXp(p,1);
+  if(oddsAtt!=null){
+    attack = oddsAtt;
+  } else {
+    const per90 = attackPer90(p);
+    const goalW = {1:6,2:6,3:5,4:4}[type]||4;
+    // Dela grovt xGI i mål/assist ~60/40 för att vikta poäng korrekt.
+    attack = per90*(0.6*goalW + 0.4*3);
+  }
+
+  // Clean sheet-poäng för MV/DEF (4p) och MID (1p).
+  let csPts = 0;
+  if(type===1||type===2) csPts = cleanSheetProb(p,fm)*4;
+  else if(type===3) csPts = cleanSheetProb(p,fm)*1;
+
+  // Bonus-proxy från ICT (lätt vikt, stabilare än form).
+  const bonus = num(p.ict_index)/38*0.15;
+
+  const raw = (apptPts + attack + csPts + bonus);
+  const xp = raw * mins; // allt skalas av starttrolighet — kärnprincipen
+  return {
+    xp,
+    parts:{ mins, apptPts, attack, csPts, bonus }
+  };
+}
+
+// ── Långsiktig xP: samma modell men fixtursnitt över 5 GW ───────────────────
+function estimateXpLong(p,fm){
+  const base = estimateXp(p,fm);
+  const fdr5 = avgFdr(p.team,fm,5);
+  // Justera för fixtursvårighet framåt (1=lätt,5=svårt → multiplikator 1.15..0.85).
+  const fxMult = 1 + (3 - fdr5)*0.075;
+  return base.xp * fxMult;
+}
+
+// ── Kaptenscoring: xP men straffa lågt xMins hårdare (vill ha nailed startare) ─
+function scoreCap(p,fm){
+  const e = estimateXp(p,fm);
+  const home = nextIsHome(p.team,fm)?0.4:0;
+  return e.xp + home;
+}
+
+// ── Differentiell: xP men premiera lågt ägande ──────────────────────────────
+function scoreDiff(p,fm){
+  const own = num(p.selected_by_percent);
+  if(own>15) return -999;
+  return estimateXp(p,fm).xp + (15-own)*0.15;
+}
+
+function fdrBg(d){return d<=2?"#14532d":d===3?"#713f12":d===4?"#7f1d1d":"#4c0519";}
+function fdrTx(d){return d<=2?"#4ade80":d===3?"#fde68a":d<=4?"#fca5a5":"#fda4af";}
+function xpColor(xp){return xp>=6?"#4ade80":xp>=4?"#fbbf24":xp>=2?"#94a3b8":"#f87171";}
+
+// ── Yolo Pick ────────────────────────────────────────────────────────────────
+function buildYoloPicks(starters, bench, bs, fm, tb, bank, gw) {
+  const myIds = new Set([...starters,...bench].map(p=>p.id));
+  const scoreYolo = (p) => {
+    const own = num(p.selected_by_percent);
+    const e = estimateXp(p,fm).xp;
+    // Premiera högt xP OCH lågt ägande. Ingen safety-vikt.
+    return e*1.5 + (15-Math.min(own,15))*0.5;
+  };
+  const picks = [];
+  for (const out of starters) {
+    const budget = (out.now_cost/10) + bank;
+    const candidates = bs.elements.filter(p =>
+      p.element_type === out.element_type &&
+      !myIds.has(p.id) &&
+      p.now_cost/10 <= budget &&
+      xMins(p) >= 0.5
+    ).map(p => ({...p, ys: scoreYolo(p), _xp: estimateXp(p,fm).xp}))
+     .sort((a,b) => b.ys - a.ys);
+    if (candidates.length > 0) {
+      const inn = candidates[0];
+      const own = num(inn.selected_by_percent);
+      const fdr = nextFdr(inn.team, fm);
+      const riskScore = Math.round(((15-Math.min(own,15))/15)*60 + ((fdr-1)/4)*40);
+      picks.push({
+        out: out.web_name, outId: out.id,
+        inn, budget,
+        priceDiff: pdiffStr(inn.now_cost, out.now_cost),
+        own: own.toFixed(1), fdr, xp: inn._xp, riskScore,
+        opp: nextOpp(inn.team, fm, tb),
+        fixtures: fxStr(inn.team, fm, tb, 4),
+        posLabel: POS_SV[out.element_type]
+      });
+    }
+  }
+  return picks.sort((a,b) => b.inn.ys - a.inn.ys).slice(0, 3);
+}
+
+// ── Chip advisor ──────────────────────────────────────────────────────────────
+function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
+  const benchXp = bench.reduce((s,p)=>s+estimateXp(p,fm).xp,0);
+  const bestCap = [...starters].filter(p=>p.element_type!==1).sort((a,b)=>scoreCap(b,fm)-scoreCap(a,fm))[0];
+  const bestCapXp = bestCap?estimateXp(bestCap,fm).xp:0;
+  const avgTeamFdr3 = starters.reduce((s,p)=>s+avgFdr(p.team,fm,3),0)/starters.length;
+
+  const dgwTeams = new Set();
+  for (const [tid, fxArr] of Object.entries(fm)) {
+    if (fxArr.filter(f=>f.gw===gw).length>=2) dgwTeams.add(parseInt(tid));
+  }
+  const hasDGW = dgwTeams.size > 0;
+  const myDGWplayers = [...starters,...bench].filter(p=>dgwTeams.has(p.team));
+  const blankers = starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===gw));
+  const nextDGWgw = (() => {
+    for (let g=gw+1; g<=gw+5; g++)
+      for (const [tid,fxArr] of Object.entries(fm))
+        if (fxArr.filter(f=>f.gw===g).length>=2) return g;
+    return null;
+  })();
+  const gwsLeft = 38 - gw;
+
+  return [
+    {
+      id:"wc", name:"Wildcard", icon:"🃏",
+      verdict: avgTeamFdr3>3.3?"KÖR NU": avgTeamFdr3>2.8||gwsLeft<8?"SNART":"AVVAKTA",
+      verdictColor: avgTeamFdr3>3.3?"#4ade80": avgTeamFdr3>2.8||gwsLeft<8?"#fbbf24":"#94a3b8",
+      pros: [
+        avgTeamFdr3>3?"Ditt lag har tuffa fixtures kommande omgångar (snitt FDR "+avgTeamFdr3.toFixed(1)+")":null,
+        gwsLeft<8?"Säsongen lider mot slutet — dags att maximera poängen nu":null,
+        hasDGW?"DGW denna omgång — bra att wildcarda in spelare med dubbla matcher":null,
+        nextDGWgw?"Kommande DGW är GW"+nextDGWgw+" — wildcarda precis innan för max effekt":null,
+      ].filter(Boolean),
+      cons: [
+        avgTeamFdr3<=2.8?"Ditt lag har bra fixturlista just nu (FDR "+avgTeamFdr3.toFixed(1)+") — onödigt att wildcarda":null,
+        gwsLeft>15?"Gott om tid kvar i säsongen — spara till ett bättre läge":null,
+        !hasDGW&&!nextDGWgw?"Ingen DGW i sikte de närmaste 5 omgångarna":null,
+      ].filter(Boolean),
+      tip: nextDGWgw
+        ? `💡 Perfekt tajming: Wildcarda i GW${nextDGWgw-1} och fyll på med spelare som har dubbel i GW${nextDGWgw}.`
+        : "💡 Använd Wildcard när du vill byta 4+ spelare utan poängavdrag. Sikta på 8-9 spelare med bra fixtures kommande 4-5 omgångar."
+    },
+    {
+      id:"bb", name:"Bench Boost", icon:"💪",
+      verdict: hasDGW&&benchXp>=14?"KÖR NU": hasDGW&&benchXp>=10?"SNART":"AVVAKTA",
+      verdictColor: hasDGW&&benchXp>=14?"#4ade80": hasDGW&&benchXp>=10?"#fbbf24":"#94a3b8",
+      pros: [
+        hasDGW&&myDGWplayers.length>=3?"Du har "+myDGWplayers.length+" spelare med dubbla matcher denna GW — Bench Boost nu är starkt!":null,
+        hasDGW?"Det är DGW — alla 15 spelares poäng räknas":null,
+        benchXp>=14?"Din bänk förväntas ge "+benchXp.toFixed(1)+" xP — klart godkänt":null,
+      ].filter(Boolean),
+      cons: [
+        !hasDGW&&nextDGWgw?"Ingen DGW nu — spara till GW"+nextDGWgw:null,
+        !hasDGW&&!nextDGWgw?"Ingen DGW i sikte. BB under normal GW ger i snitt 6-8 extra poäng — för lite":null,
+        benchXp<10?"Din bänk förväntas bara ge "+benchXp.toFixed(1)+" xP — stärk bänken först":null,
+      ].filter(Boolean),
+      tip: "💡 Bench Boost under DGW är värt ~25-35 extra poäng. Under vanlig GW kanske 8-12. Vänta på DGW."
+    },
+    {
+      id:"tc", name:"Triple Captain", icon:"⚡",
+      verdict: hasDGW&&bestCapXp>=6?"KÖR NU": bestCapXp>=8?"SNART":"AVVAKTA",
+      verdictColor: hasDGW&&bestCapXp>=6?"#4ade80": bestCapXp>=8?"#fbbf24":"#94a3b8",
+      pros: [
+        hasDGW&&bestCap&&dgwTeams.has(bestCap.team)?"PERFEKT: "+bestCap.web_name+" har dubbel match denna GW — TC+DGW ger dubbel effekt!":null,
+        hasDGW?"DGW: Triple Captain kan ge 3× poäng för VARJE match":null,
+        bestCap&&bestCapXp>=6?bestCap.web_name+" förväntas ge "+bestCapXp.toFixed(1)+" xP — med TC ≈ "+(bestCapXp*3).toFixed(0)+" xP":null,
+        bestCap&&nextFdr(bestCap.team,fm)<=2?bestCap.web_name+" möter ett svagt lag (FDR "+nextFdr(bestCap.team,fm)+")":null,
+      ].filter(Boolean),
+      cons: [
+        !hasDGW&&bestCapXp<8?"Din bäste spelare förväntas ge "+bestCapXp.toFixed(1)+" xP — TC ger för lite extra":null,
+        !hasDGW&&nextDGWgw?"Spara TC till GW"+nextDGWgw+" (DGW)":null,
+        gwsLeft>10&&!hasDGW?"Fortfarande "+gwsLeft+" omgångar kvar — vänta på en bättre vecka":null,
+      ].filter(Boolean),
+      player: bestCap,
+      tip: bestCap
+        ? "💡 Bäst case: "+bestCap.web_name+" spelar DGW och returnerar i båda. TC under DGW kan ge 40+ extra poäng."
+        : "💡 Spara TC till en omgång där din bäste spelare har DGW och lätt motstånd."
+    },
+    {
+      id:"fh", name:"Free Hit", icon:"🎯",
+      verdict: blankers.length>=5?"KÖR NU": blankers.length>=3?"SNART":"AVVAKTA",
+      verdictColor: blankers.length>=5?"#4ade80": blankers.length>=3?"#fbbf24":"#94a3b8",
+      pros: [
+        blankers.length>=3?blankers.length+" av dina startspelare spelar INTE denna GW (BGW) — Free Hit ger ett helt nytt lag för en vecka":null,
+        blankers.length>=3?"Byt in spelare som har matcher utan transferpoäng":null,
+        hasDGW&&blankers.length>=2?"BGW + DGW combo — perfekt för Free Hit":null,
+      ].filter(Boolean),
+      cons: [
+        blankers.length<3&&!hasDGW?"Dina spelare har matcher denna GW ("+blankers.length+" blanks) — Free Hit ger liten fördel nu":null,
+        !hasDGW&&blankers.length<3&&nextDGWgw?"Spara Free Hit till nästa BGW, eller GW"+nextDGWgw:null,
+      ].filter(Boolean),
+      tip: "💡 Free Hit + BGW är klassikern. Ännu bättre: Free Hit på en GW där många lag har DGW."
+    }
+  ];
+}
+
+// ── Transfer recs ─────────────────────────────────────────────────────────────
+function buildRecs(starters,bench,bs,fm,tb,bank,gw){
+  const myIds=new Set([...starters,...bench].map(p=>p.id));
+  const pool=bs.elements.filter(p=>xMins(p)>=0.5&&!myIds.has(p.id));
+  const used=new Set();
+  const trySwap=(scoreFn,extraFilter)=>{
+    let best=null,bestG=-999;
+    for(const out of starters){
+      const budget=(out.now_cost/10)+bank;
+      const opts=pool.filter(p=>p.element_type===out.element_type&&p.now_cost/10<=budget&&!used.has(p.id)&&(!extraFilter||extraFilter(p)));
+      for(const inn of opts){const g=scoreFn(inn,fm)-scoreFn(out,fm);if(g>bestG){bestG=g;best={out,inn};}}
+    }
+    if(best)used.add(best.inn.id);
+    return best;
+  };
+  const recs=[];
+  const scoreShort=(p)=>estimateXp(p,fm).xp;
+  const scoreLong=(p)=>estimateXpLong(p,fm);
+
+  const q=trySwap(scoreShort);
+  if(q){const{out,inn}=q;const fdr=nextFdr(inn.team,fm);const ix=estimateXp(inn,fm);const ox=estimateXp(out,fm);
+    recs.push({type:"quick",label:"Snabb fix",title:`${inn.web_name} in direkt`,out:out.web_name,inn:inn.web_name,
+      priceDiff:pdiffStr(inn.now_cost,out.now_cost),
+      reason:`${inn.web_name} (${tb[inn.team]?.short_name}) skattas till ${ix.xp.toFixed(1)} xP nästa omgång mot ${nextOpp(inn.team,fm,tb)} — startchans ${(ix.parts.mins*100).toFixed(0)}%. Ersätter ${out.web_name} (${ox.xp.toFixed(1)} xP, startchans ${(ox.parts.mins*100).toFixed(0)}%).`,
+      fixtures:fxStr(inn.team,fm,tb,3),risk:riskFromFdr(fdr),reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp});}
+
+  const l=trySwap(scoreLong);
+  if(l){const{out,inn}=l;const fdr5=avgFdr(inn.team,fm,5).toFixed(1);const ix=estimateXpLong(inn,fm);
+    recs.push({type:"long",label:"Långsiktig",title:`${inn.web_name} för kommande omgångar`,out:out.web_name,inn:inn.web_name,
+      priceDiff:pdiffStr(inn.now_cost,out.now_cost),
+      reason:`${inn.web_name} har snitt-FDR ${fdr5} kommande 5 omgångar och skattas till ${ix.toFixed(1)} xP/GW över perioden. ${out.web_name} har sämre utsikter (FDR-snitt ${avgFdr(out.team,fm,5).toFixed(1)}).`,
+      fixtures:fxStr(inn.team,fm,tb,5),risk:riskFromFdr(avgFdr(inn.team,fm,3)),reward:rewardLbl(ix),gwImpact:`GW${gw}–${gw+4}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix});}
+
+  const d=trySwap(scoreDiff,p=>num(p.selected_by_percent)<=15);
+  if(d){const{out,inn}=d;const own=num(inn.selected_by_percent).toFixed(1);const fdr=nextFdr(inn.team,fm);const ix=estimateXp(inn,fm);
+    recs.push({type:"diff",label:"Differentiell",title:`${inn.web_name} — bara ${own}% äger`,out:out.web_name,inn:inn.web_name,
+      priceDiff:pdiffStr(inn.now_cost,out.now_cost),
+      reason:`${inn.web_name} ägs av bara ${own}% men skattas till ${ix.xp.toFixed(1)} xP nästa GW mot ${nextOpp(inn.team,fm,tb)} (FDR ${fdr}). Rankningshöjande om det träffar. Ersätter ${out.web_name}.`,
+      fixtures:fxStr(inn.team,fm,tb,3),risk:"Hög",reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp});}
+  return recs;
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+const c={
+  root:{fontFamily:"system-ui,sans-serif",color:"#f1f5f9",maxWidth:"720px",margin:"0 auto"},
+  hdr:{background:"linear-gradient(135deg,#1e1b4b,#312e81)",borderRadius:"16px",padding:"20px",marginBottom:"16px"},
+  hdrTitle:{fontSize:"20px",fontWeight:"600",color:"white",marginBottom:"4px"},
+  hdrSub:{fontSize:"13px",color:"#a5b4fc"},
+  stats:{display:"flex",gap:"12px",marginTop:"12px",flexWrap:"wrap"},
+  stat:{background:"rgba(255,255,255,0.08)",borderRadius:"10px",padding:"8px 14px"},
+  statVal:{fontSize:"18px",fontWeight:"600",color:"white"},
+  statLbl:{fontSize:"11px",color:"#a5b4fc"},
+  oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",padding:"5px 10px",borderRadius:"8px",marginTop:"12px",background:on?"#052e16":"#1c1917",color:on?"#4ade80":"#a8a29e",border:`.5px solid ${on?"#166534":"#44403c"}`}),
+  tabs:{display:"flex",borderBottom:".5px solid #334155",marginBottom:"16px",overflowX:"auto"},
+  tab:(a)=>({flexShrink:0,padding:"10px 12px",border:"none",background:"none",cursor:"pointer",fontSize:"13px",color:a?"#a78bfa":"#6b7280",borderBottom:`2px solid ${a?"#7c3aed":"transparent"}`,fontFamily:"system-ui"}),
+  squad:{background:"#1e293b",borderRadius:"14px",padding:"14px",marginBottom:"16px"},
+  sLbl:{fontSize:"12px",color:"#64748b",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"10px"},
+  bLbl:{fontSize:"12px",color:"#475569",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",margin:"10px 0 8px",paddingTop:"10px",borderTop:".5px solid #334155"},
+  chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:"5px",background:"#0f172a",border:".5px solid #334155",borderRadius:"8px",padding:"4px 8px",margin:"3px",fontSize:"12px",color:"#f1f5f9",opacity:bench?.6:1}),
+  pos:(t)=>({fontSize:"10px",fontWeight:"600",padding:"1px 4px",borderRadius:"4px",...{1:{background:"#854d0e",color:"#fef3c7"},2:{background:"#1e40af",color:"#dbeafe"},3:{background:"#14532d",color:"#dcfce7"},4:{background:"#7f1d1d",color:"#fee2e2"}}[t]}),
+  btn:(d)=>({width:"100%",padding:"16px",background:d?"#334155":"#4f46e5",color:d?"#64748b":"white",border:"none",borderRadius:"14px",fontSize:"15px",fontWeight:"600",cursor:d?"not-allowed":"pointer",marginBottom:"4px",fontFamily:"system-ui"}),
+  secTitle:{fontSize:"12px",color:"#64748b",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"12px",paddingBottom:"6px",borderBottom:".5px solid #1e293b"},
+  card:(t)=>({background:"#1e293b",borderRadius:"16px",padding:"18px",marginBottom:"14px",border:`.5px solid ${{quick:"#16a34a",long:"#2563eb",diff:"#9333ea"}[t]||"#334155"}`}),
+  cardHdr:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px"},
+  tag:(t)=>({fontSize:"11px",fontWeight:"600",padding:"3px 10px",borderRadius:"20px",...{quick:{background:"#14532d",color:"#4ade80"},long:{background:"#1e3a8a",color:"#60a5fa"},diff:{background:"#581c87",color:"#c084fc"}}[t]}),
+  cardTitle:{fontSize:"15px",fontWeight:"600",color:"white",flex:1},
+  xpPill:(xp)=>({fontSize:"12px",fontWeight:"600",padding:"3px 9px",borderRadius:"20px",background:"#0f172a",color:xpColor(xp)}),
+  transfer:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px",padding:"10px",background:"#0f172a",borderRadius:"10px",flexWrap:"wrap"},
+  reason:{fontSize:"13px",color:"#cbd5e1",lineHeight:"1.6",marginBottom:"8px"},
+  fixtures:{fontSize:"11px",color:"#475569",marginBottom:"12px",lineHeight:"1.7"},
+  news:{display:"flex",alignItems:"flex-start",gap:"6px",background:"#292524",border:".5px solid #713f12",borderRadius:"8px",padding:"8px 10px",marginBottom:"12px",fontSize:"12px",color:"#fde68a"},
+  risks:{display:"flex",gap:"8px",flexWrap:"wrap"},
+  rb:(bg)=>({flex:1,minWidth:"60px",padding:"8px 6px",borderRadius:"10px",textAlign:"center",background:bg||"#1e293b"}),
+  rl:{fontSize:"10px",color:"#64748b",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"2px"},
+  rv:(v)=>({fontSize:"12px",fontWeight:"500",color:{Låg:"#4ade80",Medel:"#fbbf24",Hög:"#f87171"}[v]||"#94a3b8"}),
+  injBadge:{fontSize:"10px",background:"#7f1d1d",color:"#fca5a5",borderRadius:"4px",padding:"1px 4px",marginLeft:"3px"},
+  doubtBadge:{fontSize:"10px",background:"#713f12",color:"#fde68a",borderRadius:"4px",padding:"1px 4px",marginLeft:"3px"},
+  error:{background:"#1e293b",border:".5px solid #7f1d1d",borderRadius:"14px",padding:"16px",marginTop:"16px",color:"#f87171",fontSize:"13px"},
+  disclaimer:{fontSize:"11px",color:"#475569",textAlign:"center",marginTop:"16px",lineHeight:"1.5"}
+};
+
+function PlayerChip({p,bench,fm}){
+  const e=estimateXp(p,fm);
+  return(
+    <span style={c.chip(bench)}>
+      <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+      {p.web_name}
+      <span style={{color:"#64748b",fontSize:"11px"}}>£{(p.now_cost/10).toFixed(1)}</span>
+      <span style={{color:xpColor(e.xp),fontSize:"11px",fontWeight:"600"}}>{e.xp.toFixed(1)}</span>
+      {p.isCaptain&&<span style={{color:"#fbbf24",fontSize:"11px"}}>©</span>}
+      {p.isVice&&<span style={{color:"#6b7280",fontSize:"11px"}}>v</span>}
+      {isInjured(p)&&<span style={c.injBadge}>❌</span>}
+      {!isInjured(p)&&isDoubtful(p)&&<span style={c.doubtBadge}>⚠</span>}
+    </span>
+  );
+}
+
+function TransferCard({rec}){
+  const riskBg={Låg:"#052e16",Medel:"#1c1917",Hög:"#2d0a0a"};
+  return(
+    <div style={c.card(rec.type)}>
+      <div style={c.cardHdr}>
+        <span style={c.tag(rec.type)}>{rec.label}</span>
+        <span style={c.cardTitle}>{rec.title}</span>
+        <span style={c.xpPill(rec.xp)}>{rec.xp.toFixed(1)} xP</span>
+      </div>
+      <div style={c.transfer}>
+        <span style={{color:"#f87171",fontWeight:"500",fontSize:"14px"}}>▼ {rec.out}</span>
+        <span style={{color:"#64748b"}}>→</span>
+        <span style={{color:"#4ade80",fontWeight:"500",fontSize:"14px"}}>▲ {rec.inn}</span>
+        <span style={{marginLeft:"auto",fontSize:"12px",color:"#94a3b8"}}>{rec.priceDiff}</span>
+      </div>
+      {rec.news&&<div style={c.news}><span>⚠</span><span>{rec.news}</span></div>}
+      <p style={c.reason}>{rec.reason}</p>
+      <p style={c.fixtures}>{rec.fixtures}</p>
+      <div style={c.risks}>
+        {[["Risk",rec.risk,riskBg[rec.risk]||"#1c1917"],["Potential",rec.reward,riskBg[rec.reward]||"#1c1917"],["Omgång",rec.gwImpact,"#0f172a"],["Ägs av",`${num(rec.own).toFixed(1)}%`,"#0f172a"]].map(([lbl,val,bg],i)=>(
+          <div key={i} style={c.rb(bg)}>
+            <div style={c.rl}>{lbl}</div>
+            <div style={i<2?c.rv(val):{fontSize:"12px",fontWeight:"500",color:"#94a3b8"}}>{val}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function YoloTab({starters,bench,bs,fm,tb,bank,gw}){
+  const [picks,setPicks]=useState(null);
+  const riskColor=(s)=>s>=70?"#f87171":s>=45?"#fbbf24":"#4ade80";
+  const riskLabel=(s)=>s>=70?"Hög risk":s>=45?"Medel risk":"Lägre risk";
+  return(
+    <div>
+      <div style={{background:"#1e293b",borderRadius:"12px",padding:"14px",marginBottom:"16px",fontSize:"13px",color:"#94a3b8",lineHeight:"1.6"}}>
+        Spelar på hög potential istället för säkerhet. Hittar spelare med låg ägarandel, hög startchans och bra xP. För din lediga transfer när du vill ta en chans.
+      </div>
+      <button style={c.btn(false)} onClick={()=>setPicks(buildYoloPicks(starters,bench,bs,fm,tb,bank,gw))}>🎰 Visa mina yolo-picks</button>
+      {picks&&picks.length===0&&<div style={{marginTop:"16px",fontSize:"13px",color:"#64748b"}}>Inga kandidater inom budget med tillräcklig startchans.</div>}
+      {picks&&picks.length>0&&(
+        <div style={{marginTop:"16px"}}>
+          {picks.map((pick,i)=>{
+            const p=pick.inn;
+            return(
+              <div key={p.id} style={{background:"#1e293b",borderRadius:"16px",padding:"18px",marginBottom:"14px",border:`.5px solid ${i===0?"#dc2626":"#334155"}`}}>
+                {i===0&&<div style={{fontSize:"11px",fontWeight:"600",color:"#f87171",marginBottom:"10px",letterSpacing:".05em"}}>🎰 BÄSTA YOLO-PICK</div>}
+                <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px"}}>
+                  <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:"600",fontSize:"16px",color:"white"}}>{p.web_name}</div>
+                    <div style={{fontSize:"12px",color:"#6b7280"}}>{pick.posLabel} — byt ut {pick.out}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:"13px",color:"#60a5fa",fontWeight:"500"}}>£{(p.now_cost/10).toFixed(1)}m</div>
+                    <div style={{fontSize:"11px",color:"#475569"}}>{pick.priceDiff}</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
+                  <div style={{background:"#0f172a",borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"70px",textAlign:"center"}}>
+                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>xP nästa</div>
+                    <div style={{fontSize:"16px",fontWeight:"600",color:xpColor(pick.xp)}}>{pick.xp.toFixed(1)}</div>
+                  </div>
+                  <div style={{background:"#0f172a",borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"70px",textAlign:"center"}}>
+                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>Startchans</div>
+                    <div style={{fontSize:"16px",fontWeight:"600",color:"#34d399"}}>{(xMins(p)*100).toFixed(0)}%</div>
+                  </div>
+                  <div style={{background:"#0f172a",borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"70px",textAlign:"center"}}>
+                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>Ägs av</div>
+                    <div style={{fontSize:"16px",fontWeight:"600",color:"#a78bfa"}}>{pick.own}%</div>
+                  </div>
+                  <div style={{background:fdrBg(pick.fdr),borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"70px",textAlign:"center"}}>
+                    <div style={{fontSize:"10px",color:fdrTx(pick.fdr),opacity:.7,marginBottom:"2px"}}>Nästa</div>
+                    <div style={{fontSize:"13px",fontWeight:"600",color:fdrTx(pick.fdr)}}>{pick.opp}</div>
+                  </div>
+                </div>
+                <div style={{background:"#0f172a",borderRadius:"8px",padding:"10px 12px",marginBottom:"12px"}}>
+                  <div style={{fontSize:"10px",color:"#64748b",marginBottom:"4px",textTransform:"uppercase",letterSpacing:".05em"}}>Riskometer</div>
+                  <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+                    <div style={{flex:1,background:"#1e293b",borderRadius:"10px",height:"8px",overflow:"hidden"}}>
+                      <div style={{width:`${pick.riskScore}%`,height:"8px",background:riskColor(pick.riskScore),borderRadius:"10px"}}/>
+                    </div>
+                    <span style={{fontSize:"12px",fontWeight:"500",color:riskColor(pick.riskScore),minWidth:"80px",textAlign:"right"}}>{riskLabel(pick.riskScore)}</span>
+                  </div>
+                </div>
+                <div style={{fontSize:"11px",color:"#475569",lineHeight:"1.7"}}>{pick.fixtures}</div>
+                {p.news&&<div style={{...c.news,marginTop:"10px"}}><span>⚠</span><span>{p.news}</span></div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChipTab({starters,bench,fm,tb,gw,bs}){
+  const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
+  const [expanded,setExpanded]=useState("wc");
+  return(
+    <div>
+      <div style={c.secTitle}>Klicka på ett chip för detaljerad analys</div>
+      {chips.map(chip=>{
+        const open=expanded===chip.id;
+        return(
+          <div key={chip.id} style={{background:"#1e293b",borderRadius:"14px",overflow:"hidden",marginBottom:"10px",border:`.5px solid ${open?"#4f46e5":"#334155"}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"16px",cursor:"pointer"}} onClick={()=>setExpanded(open?null:chip.id)}>
+              <div style={{fontSize:"24px",width:"36px",textAlign:"center"}}>{chip.icon}</div>
+              <div style={{flex:1}}><div style={{fontWeight:"600",fontSize:"15px",color:"white"}}>{chip.name}</div></div>
+              <div style={{background:chip.verdictColor==="#4ade80"?"#052e16":chip.verdictColor==="#fbbf24"?"#1c0d00":"#0f172a",borderRadius:"20px",padding:"5px 14px"}}>
+                <span style={{fontSize:"12px",fontWeight:"700",color:chip.verdictColor,letterSpacing:".05em"}}>{chip.verdict}</span>
+              </div>
+              <span style={{color:"#64748b",fontSize:"14px"}}>{open?"▲":"▼"}</span>
+            </div>
+            {open&&(
+              <div style={{padding:"0 16px 16px",borderTop:".5px solid #334155"}}>
+                {chip.player&&(
+                  <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"14px 0 12px",padding:"10px 12px",background:"#451a03",borderRadius:"10px",border:".5px solid #b45309"}}>
+                    <span style={{fontSize:"18px"}}>⚡</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:"13px",fontWeight:"500",color:"#fbbf24"}}>{chip.player.web_name}</div>
+                      <div style={{fontSize:"11px",color:"#9ca3af"}}>{estimateXp(chip.player,fm).xp.toFixed(1)} xP · {nextOpp(chip.player.team,fm,tb)}</div>
+                    </div>
+                    <div style={{background:fdrBg(nextFdr(chip.player.team,fm)),color:fdrTx(nextFdr(chip.player.team,fm)),borderRadius:"6px",padding:"3px 8px",fontSize:"11px",fontWeight:"500"}}>FDR {nextFdr(chip.player.team,fm)}</div>
+                  </div>
+                )}
+                {chip.pros.length>0&&(
+                  <div style={{marginTop:"14px"}}>
+                    <div style={{fontSize:"11px",color:"#4ade80",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✓ Argument för att köra nu</div>
+                    {chip.pros.map((pro,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#052e16",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:"#cbd5e1",lineHeight:"1.5"}}><span style={{color:"#4ade80",flexShrink:0}}>+</span>{pro}</div>))}
+                  </div>
+                )}
+                {chip.cons.length>0&&(
+                  <div style={{marginTop:"10px"}}>
+                    <div style={{fontSize:"11px",color:"#f87171",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✗ Argument för att avvakta</div>
+                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#2d0a0a",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:"#cbd5e1",lineHeight:"1.5"}}><span style={{color:"#f87171",flexShrink:0}}>–</span>{con}</div>))}
+                  </div>
+                )}
+                {chip.pros.length===0&&chip.cons.length===0&&<div style={{padding:"12px 0",fontSize:"13px",color:"#64748b"}}>Inte tillräckligt med data denna omgång.</div>}
+                <div style={{background:"#0f172a",borderRadius:"10px",padding:"10px 12px",marginTop:"12px",fontSize:"12px",color:"#64748b",lineHeight:"1.6"}}>{chip.tip}</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CaptainTab({starters,fm,tb}){
+  const ranked=[...starters].filter(p=>p.element_type!==1).map(p=>({...p,cs:scoreCap(p,fm),_xp:estimateXp(p,fm).xp})).sort((a,b)=>b.cs-a.cs).slice(0,5);
+  return(
+    <div>
+      <div style={c.secTitle}>Rankad på xP-modell (startchans, xG/xA, clean sheet, hemmaplan)</div>
+      {ranked.map((p,i)=>{
+        const top=i===0;const fdr=nextFdr(p.team,fm);
+        return(
+          <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?"#451a03":"#1e293b",border:`.5px solid ${top?"#b45309":"#374151"}`}}>
+            <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?"#fbbf24":"#6b7280",width:"28px",textAlign:"center"}}>{top?"©":i+1}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:"500",fontSize:"14px",color:"#f3f4f6"}}>{p.web_name}</div>
+              <div style={{fontSize:"12px",color:"#9ca3af"}}>{tb[p.team]?.short_name} · {nextOpp(p.team,fm,tb)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:"13px",color:xpColor(p._xp),fontWeight:"600"}}>{p._xp.toFixed(1)} xP</div>
+              <div style={{fontSize:"11px",color:"#34d399"}}>Start {(xMins(p)*100).toFixed(0)}%</div>
+            </div>
+            <div style={{background:fdrBg(fdr),color:fdrTx(fdr),borderRadius:"8px",padding:"4px 10px",fontSize:"12px",fontWeight:"500"}}>FDR {fdr}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FixtureTicker({starters,fm,tb}){
+  const gws=[...new Set(starters.flatMap(p=>(fm[p.team]||[]).slice(0,5).map(f=>f.gw)))].sort((a,b)=>a-b).slice(0,5);
+  const sorted=[...starters].sort((a,b)=>avgFdr(a.team,fm,5)-avgFdr(b.team,fm,5));
+  return(
+    <div>
+      <div style={c.secTitle}>Sorterat på FDR-snitt (bäst överst)</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+          <thead><tr>
+            <th style={{textAlign:"left",paddingBottom:"8px",color:"#6b7280",fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
+            {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:"#6b7280",fontWeight:"500",minWidth:"60px"}}>GW{g}</th>)}
+            <th style={{textAlign:"right",paddingBottom:"8px",color:"#6b7280",fontWeight:"500"}}>Snitt</th>
+          </tr></thead>
+          <tbody>
+            {sorted.map(p=>{
+              const avg=avgFdr(p.team,fm,5);
+              return(
+                <tr key={p.id} style={{borderTop:".5px solid #1e293b"}}>
+                  <td style={{padding:"5px 8px 5px 0"}}>
+                    <div style={{fontWeight:"500",fontSize:"13px",color:"#f3f4f6"}}>{p.web_name}</div>
+                    <div style={{fontSize:"11px",color:"#6b7280"}}>{tb[p.team]?.short_name}</div>
+                  </td>
+                  {gws.map(g=>{
+                    const f=(fm[p.team]||[]).find(fx=>fx.gw===g);
+                    if(!f)return<td key={g} style={{textAlign:"center"}}><span style={{color:"#374151"}}>–</span></td>;
+                    return(<td key={g} style={{textAlign:"center",padding:"3px 2px"}}>
+                      <div style={{background:fdrBg(f.diff),color:fdrTx(f.diff),borderRadius:"5px",padding:"2px 5px",fontSize:"11px",fontWeight:"500",display:"inline-block",whiteSpace:"nowrap"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</div>
+                    </td>);
+                  })}
+                  <td style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?"#4ade80":avg<=3.5?"#fbbf24":"#f87171"}}>{avg.toFixed(1)}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PriceTrends({starters,bench}){
+  const all=[...starters,...bench];
+  const rising=all.filter(p=>p.cost_change_event>0).sort((a,b)=>b.cost_change_event-a.cost_change_event);
+  const falling=all.filter(p=>p.cost_change_event<0).sort((a,b)=>a.cost_change_event-b.cost_change_event);
+  const Row=({p,up})=>(
+    <div style={{display:"flex",alignItems:"center",gap:"8px",padding:"8px 10px",background:"#1e293b",borderRadius:"8px",marginBottom:"4px"}}>
+      <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+      <span style={{flex:1,fontSize:"13px",color:"#f1f5f9"}}>{p.web_name}</span>
+      <span style={{fontSize:"12px",color:"#94a3b8"}}>£{(p.now_cost/10).toFixed(1)}m</span>
+      <span style={{fontSize:"11px",fontWeight:"500",color:up?"#4ade80":"#f87171"}}>{up?"▲":"▼"} {up?"+":""}{(p.cost_change_event/10).toFixed(1)}m</span>
+    </div>
+  );
+  return(
+    <div>
+      {rising.length>0&&<><div style={c.secTitle}>Stiger i pris</div>{rising.map(p=><Row key={p.id} p={p} up={true}/>)}</>}
+      {falling.length>0&&<><div style={{...c.secTitle,marginTop:"14px"}}>Sjunker i pris</div>{falling.map(p=><Row key={p.id} p={p} up={false}/>)}</>}
+      {rising.length===0&&falling.length===0&&<div style={{fontSize:"13px",color:"#64748b"}}>Inga prisförändringar denna GW.</div>}
+    </div>
+  );
+}
+
+function MomentumTab({starters,bench,bs,fm}){
+  const myIds=new Set([...starters,...bench].map(p=>p.id));
+  const els=bs.elements||[];
+  const maxIn=els.length?Math.max(1,...els.map(p=>p.transfers_in_event||0)):1;
+  const maxOut=els.length?Math.max(1,...els.map(p=>p.transfers_out_event||0)):1;
+  const hotIn=els.filter(p=>!myIds.has(p.id)&&xMins(p)>=0.5).sort((a,b)=>(b.transfers_in_event||0)-(a.transfers_in_event||0)).slice(0,5);
+  const mySold=[...starters,...bench].filter(p=>(p.transfers_out_event||0)>500).sort((a,b)=>(b.transfers_out_event||0)-(a.transfers_out_event||0));
+  const Row=({p,val,max,up})=>(
+    <div style={{padding:"8px 10px",background:"#1e293b",borderRadius:"8px",marginBottom:"4px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}}>
+        <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+        <span style={{flex:1,fontSize:"13px",color:"#f1f5f9"}}>{p.web_name}</span>
+        <span style={{fontSize:"12px",color:xpColor(estimateXp(p,fm).xp),fontWeight:"600"}}>{estimateXp(p,fm).xp.toFixed(1)} xP</span>
+        <span style={{fontSize:"12px",color:up?"#4ade80":"#f87171",fontWeight:"500"}}>{up?"▲":"▼"} {(val||0).toLocaleString("sv-SE")}</span>
+      </div>
+      <div style={{background:"#0f172a",borderRadius:"3px",height:"6px",overflow:"hidden"}}><div style={{height:"6px",width:`${Math.min(((val||0)/max)*100,100)}%`,background:up?"#16a34a":"#dc2626",borderRadius:"3px"}}/></div>
+    </div>
+  );
+  return(
+    <div>
+      <div style={c.secTitle}>Mest köpta denna GW (ej i ditt lag)</div>
+      {hotIn.map(p=><Row key={p.id} p={p} val={p.transfers_in_event} max={maxIn} up={true}/>)}
+      {mySold.length>0&&<><div style={{...c.secTitle,marginTop:"14px"}}>Dina spelare som säljs av andra</div>{mySold.map(p=><Row key={p.id} p={p} val={p.transfers_out_event} max={maxOut} up={false}/>)}</>}
+    </div>
+  );
+}
+
+function InjuryTab({starters,bench}){
+  const all=[...starters,...bench];
+  const injured=all.filter(p=>isInjured(p));
+  const doubtful=all.filter(p=>!isInjured(p)&&isDoubtful(p));
+  const Row=({p,type})=>(
+    <div style={{padding:"8px 10px",background:type==="inj"?"#2d0a0a":"#1c0d00",border:`.5px solid ${type==="inj"?"#7f1d1d":"#713f12"}`,borderRadius:"8px",marginBottom:"4px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+        <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+        <span style={{flex:1,fontSize:"13px",color:"#f1f5f9",fontWeight:"500"}}>{p.web_name}</span>
+        <span style={{fontSize:"11px",color:type==="inj"?"#f87171":"#fde68a"}}>{type==="inj"?"Ej tillgänglig":`Osäker (${p.chance_of_playing_next_round}%)`}</span>
+      </div>
+      {p.news&&<div style={{fontSize:"11px",color:"#9ca3af",marginTop:"4px",paddingLeft:"24px"}}>{p.news}</div>}
+    </div>
+  );
+  return(
+    <div>
+      {injured.length===0&&doubtful.length===0&&<div style={{fontSize:"13px",color:"#4ade80",padding:"12px 0"}}>✓ Inga skador eller osäkra spelare!</div>}
+      {injured.length>0&&<><div style={c.secTitle}>Skadade</div>{injured.map(p=><Row key={p.id} p={p} type="inj"/>)}</>}
+      {doubtful.length>0&&<><div style={{...c.secTitle,marginTop:"12px"}}>Osäkra</div>{doubtful.map(p=><Row key={p.id} p={p} type="doubt"/>)}</>}
+    </div>
+  );
+}
+
+const TABS=[
+  {id:"transfers",label:"Byten"},
+  {id:"yolo",label:"🎰 Yolo-pick"},
+  {id:"chips",label:"⚡ Chips"},
+  {id:"fixtures",label:"Fixtures"},
+  {id:"captain",label:"Kapten"},
+  {id:"momentum",label:"Momentum"},
+  {id:"prices",label:"Priser"},
+  {id:"injuries",label:"Skador"},
+];
+
+function App(){
+  const [fplData,setFplData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState(null);
+  const [analyzing,setAnalyzing]=useState(false);
+  const [results,setResults]=useState(null);
+  const [tab,setTab]=useState("transfers");
+  const [oddsStatus,setOddsStatus]=useState("off");
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const [bs,entry]=await Promise.all([fplFetch("/bootstrap-static/"),fplFetch(`/entry/${TEAM_ID}/`)]);
+        const gw=entry.current_event||bs.events.find(e=>e.is_current)?.id||bs.events.find(e=>e.is_next)?.id;
+        const [picks,rawFx]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${gw}/picks/`),fplFetch("/fixtures/")]);
+        const fm={};
+        for(const f of rawFx){
+          if(!f.event||f.event<gw)continue;
+          const push=(tid,oppId,diff,home)=>{if(!fm[tid])fm[tid]=[];fm[tid].push({gw:f.event,oppId,diff,home});};
+          push(f.team_h,f.team_a,f.team_h_difficulty,true);
+          push(f.team_a,f.team_h,f.team_a_difficulty,false);
+        }
+        for(const k of Object.keys(fm))fm[k].sort((a,b)=>a.gw-b.gw);
+        const pb=Object.fromEntries(bs.elements.map(p=>[p.id,p]));
+        const tb=Object.fromEntries(bs.teams.map(t=>[t.id,t]));
+        const bank=picks.entry_history.bank/10;
+        const myP=picks.picks.map(p=>({...pb[p.element],sqPos:p.position,isCaptain:p.is_captain,isVice:p.is_vice_captain}));
+        const starters=myP.filter(p=>p.sqPos<=11);
+        const bench=myP.filter(p=>p.sqPos>11).sort((a,b)=>a.sqPos-b.sqPos);
+
+        // Odds-plugin: försök bara om aktiverad. Ingen tyst fallback.
+        if(ODDS.enabled){
+          try{ await ODDS.fetchOdds(); setOddsStatus("on"); }
+          catch(e){ setOddsStatus("error"); }
+        }
+
+        setFplData({bs,entry,fm,tb,gw,bank,starters,bench});
+      }catch(e){setError(e.message);}
+      finally{setLoading(false);}
+    })();
+  },[]);
+
+  function runTransfers(){
+    setAnalyzing(true);
+    setTimeout(()=>{
+      const{bs,fm,tb,gw,bank,starters,bench}=fplData;
+      setResults(buildRecs(starters,bench,bs,fm,tb,bank,gw));
+      setAnalyzing(false);
+    },400);
+  }
+
+  if(loading)return<div style={{padding:"3rem",textAlign:"center",color:"#64748b",fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
+  if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
+  const{entry,gw,bank,starters,bench,fm,tb,bs}=fplData;
+
+  const oddsLabel = oddsStatus==="on"?"Odds-modell aktiv":oddsStatus==="error"?"Odds ej tillgängligt — kör på xG-data":"xG-modell (odds ej påkopplat)";
+
+  return(
+    <div style={c.root}>
+      <div style={c.hdr}>
+        <div style={c.hdrTitle}>{entry.name}</div>
+        <div style={c.hdrSub}>FPL Advisor · GW{gw}</div>
+        <div style={c.stats}>
+          <div style={c.stat}><div style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
+          <div style={c.stat}><div style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
+          <div style={c.stat}><div style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
+        </div>
+        <div style={c.oddsBadge(oddsStatus==="on")}>{oddsStatus==="on"?"●":"○"} {oddsLabel}</div>
+      </div>
+
+      <div style={c.squad}>
+        <div style={c.sLbl}>Startspelare</div>
+        <div>{starters.map(p=><PlayerChip key={p.id} p={p} bench={false} fm={fm}/>)}</div>
+        <div style={c.bLbl}>Bänk</div>
+        <div>{bench.map(p=><PlayerChip key={p.id} p={p} bench={true} fm={fm}/>)}</div>
+      </div>
+
+      <div style={c.tabs}>
+        {TABS.map(t=><button key={t.id} style={c.tab(tab===t.id)} onClick={()=>setTab(t.id)}>{t.label}</button>)}
+      </div>
+
+      {tab==="transfers"&&(
+        <div>
+          <button style={c.btn(analyzing)} onClick={runTransfers} disabled={analyzing}>{analyzing?"Analyserar...":"✦ Ge mig 3 transferförslag"}</button>
+          {results&&<div style={{marginTop:"16px"}}>{results.map((rec,i)=><TransferCard key={i} rec={rec}/>)}</div>}
+          {!results&&<div style={{fontSize:"13px",color:"#64748b",textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
+        </div>
+      )}
+      {tab==="yolo"&&<YoloTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw}/>}
+      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs}/>}
+      {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
+      {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
+      {tab==="momentum"&&<MomentumTab starters={starters} bench={bench} bs={bs} fm={fm}/>}
+      {tab==="prices"&&<PriceTrends starters={starters} bench={bench}/>}
+      {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
+
+      <div style={c.disclaimer}>xP-modell byggd på startchans (xMins), xG/xA per 90, clean sheet-sannolikhet och fixtures. Odds kopplas på via plugin. Alltid ditt eget ansvar att fatta det slutliga beslutet.</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("fpl-root")).render(<App/>);
+</script>
