@@ -66,8 +66,11 @@ function normTeam(s) {
 
 // Sista ordet i ett namn (efternamn). "Jørgen Strand Larsen" → "larsen".
 // Fångar att en bok skriver mellannamn och en annan inte.
+// Bindestreck hålls ihop: "Gibbs-White" är ett efternamn, inte "white".
+// Delade vi på bindestreck kolliderade Gibbs-White med Ben White,
+// Solanke-Mitchell med Tyrick Mitchell och Dewsbury-Hall med Lewis Hall.
 function lastName(s) {
-  const parts = norm(s).split(/[\s-]+/).filter(Boolean);
+  const parts = norm(s).split(/\s+/).filter(Boolean);
   return parts[parts.length - 1] || "";
 }
 
@@ -124,23 +127,44 @@ export default async function handler(req, res) {
       return id;
     }
 
-    // Spelare per lag, indexerade på efternamn för snabb matchning.
-    // {teamId: {lastName: [players...]}}
+    // Spelare per lag, indexerade på både efternamn och web_name. FPL lägger
+    // ofta det namn spelaren faktiskt kallas i fel fält — Igor Thiago heter
+    // "Nascimento Rodrigues" i second_name men "Thiago" i web_name, och det
+    // är det senare boken skriver.
+    // Förnamn indexeras medvetet INTE: spelare som heter Wilson Isidor eller
+    // Anthony Patterson i förnamn skulle då fånga etiketter avsedda för en
+    // Wilson respektive Anthony i motståndarlaget.
+    // {teamId: {namnform: [players...]}}
     const playersByTeamLast = {};
     for (const p of fplPlayers) {
-      const ln = lastName(p.second_name || p.web_name);
-      (playersByTeamLast[p.team] ??= {})[ln] ??= [];
-      playersByTeamLast[p.team][ln].push(p);
+      const keys = new Set([p.second_name, p.web_name].map(lastName).filter(Boolean));
+      for (const k of keys) ((playersByTeamLast[p.team] ??= {})[k] ??= []).push(p);
     }
-    function matchPlayer(oddsLabel, fplTeamId) {
+
+    // Etiketter vi inte kunde knyta till exakt en spelare. Rapporteras i
+    // svaret — en etikett som tappas ska aldrig försvinna tyst.
+    const unmatched = new Set();
+    const ambiguous = new Set();
+
+    // Matchar mot BÅDA lagen i matchen samtidigt. Den gamla varianten provade
+    // hemmalaget först och tog första träffen, vilket skrev bortaspelarens
+    // odds på en hemmaspelare med samma efternamn (Callum Wilson → Harry Wilson).
+    function matchPlayer(oddsLabel, fplTeamIds) {
       const ln = lastName(oddsLabel);
-      const bucket = playersByTeamLast[fplTeamId]?.[ln];
-      if (!bucket || bucket.length === 0) return null;
-      if (bucket.length === 1) return bucket[0].id;
-      // Flera med samma efternamn i laget: matcha även på förnamnsinitial.
-      const oddsFirst = norm(oddsLabel).split(/[\s-]+/)[0] || "";
-      const better = bucket.find(p => norm(p.first_name || "").startsWith(oddsFirst.slice(0, 3)));
-      return (better || bucket[0]).id;
+      const seen = new Map();
+      for (const t of fplTeamIds)
+        for (const p of playersByTeamLast[t]?.[ln] ?? []) seen.set(p.id, p);
+      const cands = [...seen.values()];
+      if (cands.length === 0) { unmatched.add(oddsLabel); return null; }
+      if (cands.length === 1) return cands[0].id;
+      // Flera kandidater: förnamnet måste peka ut exakt en. Gör det inte det
+      // hoppar vi över etiketten — en gissning här skriver en spelares odds
+      // på en annan, vilket är värre än att sakna odds.
+      const first = norm(oddsLabel).split(/\s+/)[0] || "";
+      const byFirst = cands.filter(p => norm(p.first_name || "").startsWith(first));
+      if (byFirst.length === 1) return byFirst[0].id;
+      ambiguous.add(oddsLabel);
+      return null;
     }
 
     // 2. Odds-API: kommande PL-events.
@@ -169,6 +193,7 @@ export default async function handler(req, res) {
 
       const homeFpl = oddsTeamToFplId(ev.home);
       const awayFpl = oddsTeamToFplId(ev.away);
+      const fixtureTeams = [homeFpl, awayFpl].filter(Boolean);
 
       // Böckerna ligger under odds.bookmakers.{Bet365|Unibet} som en array
       // av marknader. Vi tar den första bok som har respektive marknad.
@@ -203,8 +228,7 @@ export default async function handler(req, res) {
         for (const sel of scorer.odds) {
           const prob = impliedProb(sel.over);
           if (!prob) continue;
-          let pid = homeFpl ? matchPlayer(sel.label, homeFpl) : null;
-          if (!pid && awayFpl) pid = matchPlayer(sel.label, awayFpl);
+          const pid = matchPlayer(sel.label, fixtureTeams);
           if (pid) (byPlayer[pid] ??= {}).anytimeProb = prob;
         }
       }
@@ -217,8 +241,7 @@ export default async function handler(req, res) {
           const prob = impliedProb(sel.over);
           if (!prob) continue;
           const clean = sel.label.replace(/\(.*?\)/g, "").trim();
-          let pid = homeFpl ? matchPlayer(clean, homeFpl) : null;
-          if (!pid && awayFpl) pid = matchPlayer(clean, awayFpl);
+          const pid = matchPlayer(clean, fixtureTeams);
           if (pid) (byPlayer[pid] ??= {}).assistProb = prob;
         }
       }
@@ -236,6 +259,8 @@ export default async function handler(req, res) {
         eventsFailed: failedEvents,
         teamsWithOdds: Object.keys(byTeam).length,
         unmappedTeams: [...unmappedTeams],
+        unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
+        ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
       },
     };
     CACHE = { data: payload, ts: Date.now() };
