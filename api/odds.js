@@ -93,13 +93,38 @@ async function jget(url) {
   return r.json();
 }
 
-// Decimalodds → implicerad sannolikhet, med grov marginaljustering.
-// För anytime (ja/nej-marknad utan explicit nej) klipper vi bara 1/odds;
-// det överskattar något pga vig, men räcker gott för ranking. Clean sheet
-// har både ja och nej, så där normaliserar vi bort marginalen ordentligt.
+// Decimalodds → rå implicerad sannolikhet. Bär bookmakerns marginal.
+// Clean sheet har både ja och nej och normaliseras direkt där den läses.
+// Anytime och assist saknar nej-sida och kalibreras i stället lagvis med
+// calibrationExponent() nedan — rå 1/odds duger INTE.
 function impliedProb(odds) {
   const o = parseFloat(odds);
   return o > 1 ? 1 / o : 0;
+}
+
+// Marginalen i anytime-marknaden är skevt fördelad: långskott är
+// proportionellt mycket mer uppblåsta än favoriter. En potens krymper därför
+// långskott hårdare, vilket är rätt form på korrigeringen — ett platt tal
+// vore fel.
+//
+// Vi söker det alpha som får summan av sannolikheterna att landa på lagets
+// förväntade antal mål. Summan av anytime-sannolikheter ÄR väntevärdet för
+// antalet olika målskyttar (linjäritet — gäller oavsett hur mål korrelerar),
+// och det kan aldrig överstiga förväntade mål. Mätt på skarp data låg summan
+// 2,7 gånger över taket för samtliga 20 lag.
+//
+// Taket är något generöst, eftersom en spelare kan göra två mål. Kalibreringen
+// krymper alltså aningen för lite och lämnar kvar en gnutta inflation. Det är
+// avsiktligt: hellre underkorrigera än överkorrigera.
+function calibrationExponent(probs, lambda) {
+  const sum = a => probs.reduce((acc, p) => acc + p ** a, 0);
+  if (sum(1) <= lambda) return 1; // redan under taket — rör inte
+  let lo = 1, hi = 12;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (sum(mid) > lambda) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
 }
 
 export default async function handler(req, res) {
@@ -158,6 +183,7 @@ export default async function handler(req, res) {
     // svaret — en etikett som tappas ska aldrig försvinna tyst.
     const unmatched = new Set();
     const ambiguous = new Set();
+    const playerTeam = Object.fromEntries(fplPlayers.map(p => [p.id, p.team]));
 
     // Matchar mot BÅDA lagen i matchen samtidigt. Den gamla varianten provade
     // hemmalaget först och tog första träffen, vilket skrev bortaspelarens
@@ -200,6 +226,8 @@ export default async function handler(req, res) {
     // 3. Odds per match. Begränsa till nästa ~10 för att hålla nere anrop.
     const requested = upcoming.slice(0, 10);
     const failedEvents = [];
+    const calibration = {};          // fplTeamId -> exponent som användes
+    const uncalibratedTeams = new Set();
     for (const ev of requested) {
       let odds;
       try {
@@ -244,13 +272,23 @@ export default async function handler(req, res) {
 
       // Anytime goalscorer: lista av {label, over}. Spelarens lag är antingen
       // hemma eller borta — vi provar båda och matchar på efternamn.
+      // Spelarsannolikheterna mellanlagras per match. Kalibreringen behöver
+      // hela lagets lista, så ingenting skrivs till byPlayer förrän vi vet
+      // vilken exponent som gäller.
+      const staged = new Map(); // pid -> { team, anytimeProb, assistProb }
+      const stage = (pid, field, prob) => {
+        const e = staged.get(pid) ?? { team: playerTeam[pid] };
+        e[field] = prob;
+        staged.set(pid, e);
+      };
+
       const scorer = findMarket("Anytime Goalscorer");
       if (scorer) {
         for (const sel of scorer.odds) {
           const prob = impliedProb(sel.over);
           if (!prob) continue;
           const pid = matchPlayer(sel.label, fixtureTeams);
-          if (pid) (byPlayer[pid] ??= {}).anytimeProb = prob;
+          if (pid) stage(pid, "anytimeProb", prob);
         }
       }
 
@@ -263,8 +301,38 @@ export default async function handler(req, res) {
           if (!prob) continue;
           const clean = sel.label.replace(/\(.*?\)/g, "").trim();
           const pid = matchPlayer(clean, fixtureTeams);
-          if (pid) (byPlayer[pid] ??= {}).assistProb = prob;
+          if (pid) stage(pid, "assistProb", prob);
         }
+      }
+
+      // Kalibrera bort marginalen, lagvis. Lagets förväntade mål kommer ur
+      // MOTSTÅNDARENS clean sheet-odds, som redan är de-viggade:
+      // P(laget gör 0 mål) = e^-lambda.
+      for (const teamId of fixtureTeams) {
+        const oppId = teamId === homeFpl ? awayFpl : homeFpl;
+        const csOpp = oppId ? byTeam[oppId]?.csProb : null;
+        const own = [...staged.values()].filter(e => e.team === teamId);
+        const anytimes = own.map(e => e.anytimeProb).filter(Boolean);
+        if (!anytimes.length) continue;
+        if (csOpp == null) {
+          // Utan clean sheet-ankare går marginalen inte att mäta. Vi lämnar
+          // sannolikheterna råa och säger det i svaret hellre än att hitta på
+          // en exponent.
+          uncalibratedTeams.add(teamId);
+          continue;
+        }
+        const alpha = calibrationExponent(anytimes, -Math.log(csOpp));
+        calibration[teamId] = Number(alpha.toFixed(3));
+        for (const e of own) {
+          if (e.anytimeProb) e.anytimeProb = e.anytimeProb ** alpha;
+          if (e.assistProb) e.assistProb = e.assistProb ** alpha;
+        }
+      }
+
+      for (const [pid, e] of staged) {
+        const t = (byPlayer[pid] ??= {});
+        if (e.anytimeProb) t.anytimeProb = e.anytimeProb;
+        if (e.assistProb) t.assistProb = e.assistProb;
       }
     }
 
@@ -282,6 +350,8 @@ export default async function handler(req, res) {
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
         ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
+        calibration,
+        uncalibratedTeams: [...uncalibratedTeams],
       },
     };
     CACHE = { data: payload, ts: Date.now() };
