@@ -54,13 +54,24 @@ second_name). Förnamn indexeras medvetet INTE. Etiketten matchas mot **båda** 
 i matchen samtidigt och måste peka ut exakt en spelare; annars hoppas den över.
 Bindestreck hålls ihop ("Gibbs-White" är inte "white").
 
+**Marginalkalibrering.** Clean sheet de-viggas direkt (`y/(y+n)`). Anytime och
+assist saknar nej-sida och kalibreras i stället lagvis: summan av anytime-
+sannolikheter är väntevärdet för antalet olika målskyttar och kan aldrig
+överstiga förväntade mål, som fås ur motståndarens (redan de-viggade) clean
+sheet-odds via `P(0 mål) = e^-lambda`. Vi söker exponenten `alpha` så att
+`sum(p^alpha) = lambda`. Potens, inte platt tal, eftersom marginalen sitter i
+långskotten — mätt låg summan 2,7 gånger över taket för alla 20 lag.
+Rör aldrig anytime som rå `1/odds` igen; det snedvrider rankningen mellan
+positioner, vilket är exakt vad Kapten- och Byten-flikarna gör.
+
 **Returnerar:**
 ```
 { updated,
   byTeam:   { fplTeamId: { csProb } },
   byPlayer: { fplPlayerId: { anytimeProb, assistProb } },
   coverage: { eventsRequested, eventsFailed, teamsWithOdds, unmappedTeams,
-              unmatchedLabels: {count, sample}, ambiguousLabels: {count, sample} } }
+              unmatchedLabels: {count, sample}, ambiguousLabels: {count, sample},
+              calibration: {fplTeamId: alpha}, uncalibratedTeams: [] } }
 ```
 `coverage` är avsiktligt en del av kontraktet: allt som tappas ska gå att se utan
 API-nyckel. Läs den efter varje deploy.
@@ -68,7 +79,11 @@ API-nyckel. Läs den efter varje deploy.
 ## xP-modellen (i index.html)
 Ersatte en gammal modell som lutade på FPL:s `ep_next` + `form` (svag, trolig orsak
 till dålig prestanda förra säsongen). Nya modellen:
-- **xMins** (startchans) från `starts_per_90`, minuter, skadestatus — allt xP skalas av denna.
+- **xMins** (speltidsandel) = andel spelade minuter, krympt mot 0.5 med två
+  pseudo-matcher, gånger `chance_of_playing`. Allt xP skalas av denna.
+  Använd ALDRIG en fast tröskel här igen: den gamla dämpade allt under 270
+  minuter och gav därmed exakt 0.60 åt varenda startspelare de tre första
+  omgångarna. `SEASON.gamesPlayed` sätts när bootstrap laddats.
 - **Anfall** från odds (anytime goalscorer) om tillgängligt, annars xGI-per-90-proxy.
 - **Clean sheet** från odds (Clean Sheet Home/Away) om tillgängligt, annars Poisson
   på `expected_goals_conceded_per_90` + hemmaplan.
@@ -91,32 +106,48 @@ Fixtures (FDR-ticker), Kapten (rankad på xP), Momentum (transfers in/ut), Prise
   (sex enordsklubbar — ARS, BRE, CHE, EVE, FUL, LIV — fick noll odds och föll tyst
   till xG medan badgen påstod full odds-modell). Efter deploy: `teamsWithOdds` gick
   från 14 till 20, spelare med odds från 283 till 401.
-- **`6ef9784` — committad. Verifiera efter deploy.** Namnmatchningen slutade gissa.
+- **`6ef9784`, `847f198` — deployade och verifierade.** Namnmatchningen slutade gissa.
   Bekräftat fel före fixen: Callum Wilsons (BRE) målskyttodds hamnade på Harry
   Wilson (LEE). Testad mot live FPL-data över GW2–GW10: 12150 etiketter,
   0 felmatchningar, 30 överhoppade (nakna efternamn som två spelare i matchen delar).
-  → Kontrollera efter deploy att Callum Wilson (id 108) och Igor Thiago har odds,
-  och att `unmatchedLabels.count` är lågt.
+  Verifierat i produktion: Callum Wilson fick sin egen anytime 0.333 (som tidigare
+  satt på Harry Wilson, som nu har sin riktiga 0.278), Igor Thiago fick odds för
+  första gången, och `unmatchedLabels` föll 29 → 25.
+- **`6648eb1` — deployad och verifierad.** Marginalkalibreringen (se
+  odds-pipelinen ovan). I produktion: `sum(p)` ligger på taket för alla 20 lag med
+  0.000000 % avvikelse, alpha 1.53–1.93, inga okalibrerade lag. Haaland 0.619 →
+  0.465 (odds 1.61 → 2.15). Effekt: 8 av 11 startspelare byter plats i rankningen,
+  försvarare upp och anfallare ner — Shaw 6 → 2, João Pedro 5 → 9.
+- **`a6f7a28` — committad, verifiera efter deploy.** xMins och kaptensrankningen,
+  se xP-modellen ovan. → Kontrollera att Kapten-listan är monotont sorterad på det
+  visade xP-talet och att speltidsandelen skiljer sig mellan spelare.
+
+**Notera:** kaptensvalet ändrades INTE av kalibreringen. En tidigare analys som
+bara räknade på odds-delarna förutsade att det skulle göra det; med hela modellen
+(xMins, närvaropoäng) står B.Fernandes kvar överst. Räkna alltid på hela xP innan
+du påstår något om rankningen.
 
 ## Öppna trådar / TODO
-1. **Vig-inkonsekvensen.** Clean sheet de-viggas korrekt (`y/(y+n)`), men anytime
-   goalscorer och assist konverteras med rå `1/odds` och bär alltså bookmakerns
-   marginal. Båda summeras i samma `raw` i `estimateXp`, så anfallsdelen är
-   systematiskt uppblåst relativt clean sheet-delen — det snedvrider rankningen
-   *mellan positioner*, vilket är precis vad Kapten- och Byten-flikarna gör.
-   Anytime är inte en ömsesidigt uteslutande marknad, så den går inte att
-   normalisera som clean sheet; kräver "nej"-sidan eller en explicit överrundsmodell.
-   Störst kvarvarande korrekthetsfråga i modellen.
-2. `upcoming.slice(0, 10)` antar att de tio första pending-matcherna ≈ nästa omgång.
+1. **Kaptensvikt.** `scoreCap` är borttagen och kapten rankas nu på ren xP. Den
+   gamla kommentaren påstod att den straffade lågt xMins hårdare för att gynna
+   nagelfasta startare — det var aldrig implementerat. Om du vill ha en sådan
+   viktning är den obyggd och ett medvetet modellval, inte en bugg.
+2. **Dubbelefternamn.** Boken skriver "Yeremy Pino" och "Bruno Guimaraes" där FPL
+   har `Pino Santos` och `Guimarães Rodriguez Moura`; `lastName()` tar sista ordet
+   och missar. Sex spelare berörda, samtliga ≤3.2% ägda, så nyttan är liten. De
+   syns i `coverage.unmatchedLabels` om någon av dem blir relevant.
+3. `upcoming.slice(0, 10)` antar att de tio första pending-matcherna ≈ nästa omgång.
    Håller inte vid dubbel- eller blankomgång.
-3. Föreslagna förbättringar (ej byggda), i värdeordning:
+4. Föreslagna förbättringar (ej byggda), i värdeordning:
    - Flera-omgångars-planering / solver (störst edge, mest jobb) — som FPL Review/Hub.
    - Effective ownership / template-vs-differential-märkning (billig, hög nytta).
-4. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
+5. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
-- FPL:s API blockerar ibland moln-IP:n → därför proxyn med User-Agent/Referer-headers.
+- FPL:s API blockerar ibland moln-IP:n → därför User-Agent/Referer-headers. Detta
+  gäller BÅDA filerna: `api/odds.js` hämtar bootstrap-static direkt och saknade
+  headers länge, vilket sporadiskt tog ner hela `/api/odds` med 502.
 - Boten är en enda HTML-fil med React via Babel-standalone (ingen byggkedja).
 - **Pusha tidigt.** Repot tömdes en gång lokalt (26 aug 2026) — allt som bara fanns
   som lokal commit var borta. GitHub-remoten var enda räddningen. En commit som inte
