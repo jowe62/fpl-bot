@@ -229,6 +229,35 @@ function fdrBg(d){return d<=2?"#232F26":d===3?"#2F2B21":d===4?"#302422":"#2B1E1C
 function fdrTx(d){return d<=2?"#87B795":d===3?"#CFAE6B":d<=4?"#CE8B79":"#C0705C";}
 function xpColor(xp){return xp>=6?"#87B795":xp>=4?"#CFAE6B":xp>=2?"#8E8E85":"#CE8B79";}
 
+// ── Template-XI ───────────────────────────────────────────────────────────────
+// Den elva som flest managers faktiskt har. Ager du samma spelare som alla
+// andra rör du dig med fältet: du rasar inte när de blankar, men du klättrar
+// inte heller när de levererar. För någon som är ny är det den enskilt
+// nyttigaste orienteringen — den säger om laget är byggt för att följa eller
+// för att sticka ut.
+//
+// Äkta effective ownership kräver kaptensandelar, och FPL exponerar inga.
+// Vi påstår därför inte att detta är EO. Det är ägarandel, inget annat.
+const FORMATION_MIN = {1:1,2:3,3:3,4:1}, FORMATION_MAX = {1:1,2:5,3:5,4:3};
+function templateXI(elements){
+  const byPos = {1:[],2:[],3:[],4:[]};
+  for(const p of elements) byPos[p.element_type]?.push(p);
+  for(const k of Object.keys(byPos)) byPos[k].sort((a,b)=>num(b.selected_by_percent)-num(a.selected_by_percent));
+  const xi = [];
+  const taken = {1:0,2:0,3:0,4:0};
+  for(const t of [1,2,3,4]){
+    for(let i=0;i<FORMATION_MIN[t];i++){ const p=byPos[t][i]; if(p){xi.push(p);taken[t]++;} }
+  }
+  // Fyll resterande platser med de mest ägda som ryms inom formationstaken.
+  const rest = [2,3,4].flatMap(t=>byPos[t].slice(FORMATION_MIN[t]).map(p=>p))
+    .sort((a,b)=>num(b.selected_by_percent)-num(a.selected_by_percent));
+  for(const p of rest){
+    if(xi.length>=11) break;
+    if(taken[p.element_type] < FORMATION_MAX[p.element_type]){ xi.push(p); taken[p.element_type]++; }
+  }
+  return xi;
+}
+
 // ── Chip-status ───────────────────────────────────────────────────────────────
 // Vilka chips du faktiskt HAR kvar. bootstrap.chips ger fönstren — varje chip
 // finns en gång per säsongshalva — och /entry/{id}/history/ ger vilka du använt
@@ -615,6 +644,9 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   const benchDead = bench.filter(p=>isInjured(p)).length;
 
   const chipsLeft = Object.entries(chipAvail).filter(([,a])=>a.available).length;
+  const tmpl = useMemo(()=>templateXI(bs.elements),[bs]);
+  const tmplIds = new Set(tmpl.map(p=>p.id));
+  const overlap = starters.filter(p=>tmplIds.has(p.id)).length;
   const capFx = (fm[cap?.team]||[])[0];
   const capXp = cap?estimateXp(cap,fm).xp:0;
 
@@ -684,6 +716,15 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
         )}
         {/* Bänken avgör om auto-bytena räddar dig när en startspelare uteblir,
             så den ska stå här varje vecka — inte bara när elvan redan brinner. */}
+        <div style={c.weekFlag()}>
+          <span style={c.weekDot(T.line)}/>
+          <span style={c.weekMuted}>{overlap} av dina 11 finns i template-elvan — den elva flest managers äger.
+            {overlap>=8
+              ? <> Du rör dig i stort sett med fältet: låg risk att rasa, men också få tillfällen att klättra.</>
+              : overlap>=5
+              ? <> Ungefär hälften template, hälften eget. Balanserat.</>
+              : <> Ditt lag skiljer sig rejält från mängden. Det svänger mer, åt båda hållen.</>}</span>
+        </div>
         <div style={c.weekFlag()}>
           <span style={c.weekDot(chipsLeft>0?T.line:T.warn)}/>
           <span style={c.weekMuted}>{chipsLeft>0
