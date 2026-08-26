@@ -1,11 +1,31 @@
+<style>
+  html,body{margin:0;padding:0;background:#FAFAF8;-webkit-font-smoothing:antialiased;}
+  *{box-sizing:border-box;}
+  button:focus-visible{outline:1px solid #1A1A1A;outline-offset:2px;}
+</style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useEffect } = React;
+const { useState, useEffect, useMemo } = React;
 const FPL_PROXY = "/api/fpl";
 const TEAM_ID = 1036486;
+// ── Designtokens ────────────────────────────────────────────────────────────
+// Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
+// och signalfärger som bara används när något faktiskt kräver uppmärksamhet.
+const T = {
+  bg:"#FAFAF8", card:"#FFFFFF", line:"#E5E4E0",
+  ink:"#1A1A1A", mut:"#6B6B6B",
+  good:"#1F6F43", warn:"#8A6100", bad:"#A8331F", warnBg:"#FBF6EA",
+};
+// Positionsmärken: dova toner ur samma varma familj, inte färgklickar.
+const POS_TINT = {
+  1:{background:"#F0EBE1",color:"#6B5B3E"},
+  2:{background:"#E9EDF1",color:"#3D5872"},
+  3:{background:"#E7EDE8",color:"#3E5F49"},
+  4:{background:"#F3EAE7",color:"#7A4237"},
+};
 const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
 const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
 
@@ -202,9 +222,9 @@ function scoreDiff(p,fm){
   return estimateXp(p,fm).xp + (15-own)*0.15;
 }
 
-function fdrBg(d){return d<=2?"#14532d":d===3?"#713f12":d===4?"#7f1d1d":"#4c0519";}
-function fdrTx(d){return d<=2?"#4ade80":d===3?"#fde68a":d<=4?"#fca5a5":"#fda4af";}
-function xpColor(xp){return xp>=6?"#4ade80":xp>=4?"#fbbf24":xp>=2?"#94a3b8":"#f87171";}
+function fdrBg(d){return d<=2?"#E4EDE6":d===3?"#F3EFE4":d===4?"#F5E7E3":"#F0DEDA";}
+function fdrTx(d){return d<=2?"#1F6F43":d===3?"#8A6100":d<=4?"#A8331F":"#8C2415";}
+function xpColor(xp){return xp>=6?"#1F6F43":xp>=4?"#8A6100":xp>=2?"#6B6B6B":"#A8331F";}
 
 // ── Chip advisor ──────────────────────────────────────────────────────────────
 function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
@@ -232,7 +252,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     {
       id:"wc", name:"Wildcard", icon:"🃏",
       verdict: avgTeamFdr3>3.3?"KÖR NU": avgTeamFdr3>2.8||gwsLeft<8?"SNART":"AVVAKTA",
-      verdictColor: avgTeamFdr3>3.3?"#4ade80": avgTeamFdr3>2.8||gwsLeft<8?"#fbbf24":"#94a3b8",
+      verdictColor: avgTeamFdr3>3.3?T.good: avgTeamFdr3>2.8||gwsLeft<8?T.warn:T.mut,
       pros: [
         avgTeamFdr3>3?"Ditt lag har tuffa fixtures kommande omgångar (snitt FDR "+avgTeamFdr3.toFixed(1)+")":null,
         gwsLeft<8?"Säsongen lider mot slutet — dags att maximera poängen nu":null,
@@ -251,7 +271,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     {
       id:"bb", name:"Bench Boost", icon:"💪",
       verdict: hasDGW&&benchXp>=14?"KÖR NU": hasDGW&&benchXp>=10?"SNART":"AVVAKTA",
-      verdictColor: hasDGW&&benchXp>=14?"#4ade80": hasDGW&&benchXp>=10?"#fbbf24":"#94a3b8",
+      verdictColor: hasDGW&&benchXp>=14?T.good: hasDGW&&benchXp>=10?T.warn:T.mut,
       pros: [
         hasDGW&&myDGWplayers.length>=3?"Du har "+myDGWplayers.length+" spelare med dubbla matcher denna GW — Bench Boost nu är starkt!":null,
         hasDGW?"Det är DGW — alla 15 spelares poäng räknas":null,
@@ -267,7 +287,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     {
       id:"tc", name:"Triple Captain", icon:"⚡",
       verdict: hasDGW&&bestCapXp>=6?"KÖR NU": bestCapXp>=8?"SNART":"AVVAKTA",
-      verdictColor: hasDGW&&bestCapXp>=6?"#4ade80": bestCapXp>=8?"#fbbf24":"#94a3b8",
+      verdictColor: hasDGW&&bestCapXp>=6?T.good: bestCapXp>=8?T.warn:T.mut,
       pros: [
         hasDGW&&bestCap&&dgwTeams.has(bestCap.team)?"PERFEKT: "+bestCap.web_name+" har dubbel match denna GW — TC+DGW ger dubbel effekt!":null,
         hasDGW?"DGW: Triple Captain kan ge 3× poäng för VARJE match":null,
@@ -287,7 +307,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     {
       id:"fh", name:"Free Hit", icon:"🎯",
       verdict: blankers.length>=5?"KÖR NU": blankers.length>=3?"SNART":"AVVAKTA",
-      verdictColor: blankers.length>=5?"#4ade80": blankers.length>=3?"#fbbf24":"#94a3b8",
+      verdictColor: blankers.length>=5?T.good: blankers.length>=3?T.warn:T.mut,
       pros: [
         blankers.length>=3?blankers.length+" av dina startspelare spelar INTE denna GW (BGW) — Free Hit ger ett helt nytt lag för en vecka":null,
         blankers.length>=3?"Byt in spelare som har matcher utan transferpoäng":null,
@@ -377,48 +397,66 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const c={
-  root:{fontFamily:"system-ui,sans-serif",color:"#f1f5f9",maxWidth:"720px",margin:"0 auto"},
-  hdr:{background:"linear-gradient(135deg,#1e1b4b,#312e81)",borderRadius:"16px",padding:"20px",marginBottom:"16px"},
-  hdrTitle:{fontSize:"20px",fontWeight:"600",color:"white",marginBottom:"4px"},
-  hdrSub:{fontSize:"13px",color:"#a5b4fc"},
-  stats:{display:"flex",gap:"12px",marginTop:"12px",flexWrap:"wrap"},
-  stat:{background:"rgba(255,255,255,0.08)",borderRadius:"10px",padding:"8px 14px"},
-  statVal:{fontSize:"18px",fontWeight:"600",color:"white"},
-  statLbl:{fontSize:"11px",color:"#a5b4fc"},
-  oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",padding:"5px 10px",borderRadius:"8px",marginTop:"12px",background:on?"#052e16":"#1c1917",color:on?"#4ade80":"#a8a29e",border:`.5px solid ${on?"#166534":"#44403c"}`}),
-  oddsWarn:{fontSize:"10px",color:"#fbbf24",marginTop:"6px",lineHeight:1.4},
-  tabs:{display:"flex",borderBottom:".5px solid #334155",marginBottom:"16px",overflowX:"auto"},
-  tab:(a)=>({flexShrink:0,padding:"10px 12px",border:"none",background:"none",cursor:"pointer",fontSize:"13px",color:a?"#a78bfa":"#6b7280",borderBottom:`2px solid ${a?"#7c3aed":"transparent"}`,fontFamily:"system-ui"}),
-  squad:{background:"#1e293b",borderRadius:"14px",padding:"14px",marginBottom:"16px"},
-  sLbl:{fontSize:"12px",color:"#64748b",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"10px"},
-  bLbl:{fontSize:"12px",color:"#475569",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",margin:"10px 0 8px",paddingTop:"10px",borderTop:".5px solid #334155"},
-  chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:"5px",background:"#0f172a",border:".5px solid #334155",borderRadius:"8px",padding:"4px 8px",margin:"3px",fontSize:"12px",color:"#f1f5f9",opacity:bench?.6:1}),
-  pos:(t)=>({fontSize:"10px",fontWeight:"600",padding:"1px 4px",borderRadius:"4px",...{1:{background:"#854d0e",color:"#fef3c7"},2:{background:"#1e40af",color:"#dbeafe"},3:{background:"#14532d",color:"#dcfce7"},4:{background:"#7f1d1d",color:"#fee2e2"}}[t]}),
-  btn:(d)=>({width:"100%",padding:"16px",background:d?"#334155":"#4f46e5",color:d?"#64748b":"white",border:"none",borderRadius:"14px",fontSize:"15px",fontWeight:"600",cursor:d?"not-allowed":"pointer",marginBottom:"4px",fontFamily:"system-ui"}),
-  secTitle:{fontSize:"12px",color:"#64748b",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"12px",paddingBottom:"6px",borderBottom:".5px solid #1e293b"},
-  card:(t)=>({background:"#1e293b",borderRadius:"16px",padding:"18px",marginBottom:"14px",border:`.5px solid ${{quick:"#16a34a",long:"#2563eb",diff:"#9333ea"}[t]||"#334155"}`}),
-  cardHdr:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px"},
-  tag:(t)=>({fontSize:"11px",fontWeight:"600",padding:"3px 10px",borderRadius:"20px",...{quick:{background:"#14532d",color:"#4ade80"},long:{background:"#1e3a8a",color:"#60a5fa"},diff:{background:"#581c87",color:"#c084fc"}}[t]}),
-  cardTitle:{fontSize:"15px",fontWeight:"600",color:"white",flex:1},
-  xpPill:(xp)=>({fontSize:"12px",fontWeight:"600",padding:"3px 9px",borderRadius:"20px",background:"#0f172a",color:xpColor(xp)}),
-  netPill:(n)=>({fontSize:"12px",fontWeight:"600",padding:"3px 9px",borderRadius:"20px",background:"#0f172a",color:n>=0.5?"#4ade80":n>0?"#fbbf24":"#f87171"}),
-  mathRow:{fontSize:"11px",color:"#94a3b8",padding:"0 14px 10px",lineHeight:1.5},
-  verdictYes:{marginTop:"4px",color:"#4ade80",fontWeight:"600"},
-  verdictMeh:{marginTop:"4px",color:"#fbbf24",fontWeight:"600"},
-  verdictNo:{marginTop:"4px",color:"#f87171",fontWeight:"600"},
-  ftBox:{padding:"12px 14px",background:"#0f172a",border:".5px solid #1e293b",borderRadius:"12px",marginBottom:"12px",fontSize:"13px",color:"#cbd5e1",lineHeight:1.6},
-  transfer:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px",padding:"10px",background:"#0f172a",borderRadius:"10px",flexWrap:"wrap"},
-  reason:{fontSize:"13px",color:"#cbd5e1",lineHeight:"1.6",marginBottom:"8px"},
-  fixtures:{fontSize:"11px",color:"#475569",marginBottom:"12px",lineHeight:"1.7"},
-  news:{display:"flex",alignItems:"flex-start",gap:"6px",background:"#292524",border:".5px solid #713f12",borderRadius:"8px",padding:"8px 10px",marginBottom:"12px",fontSize:"12px",color:"#fde68a"},
-  risks:{display:"flex",gap:"8px",flexWrap:"wrap"},
-  rb:(bg)=>({flex:1,minWidth:"60px",padding:"8px 6px",borderRadius:"10px",textAlign:"center",background:bg||"#1e293b"}),
-  rl:{fontSize:"10px",color:"#64748b",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"2px"},
-  rv:(v)=>({fontSize:"12px",fontWeight:"500",color:{Låg:"#4ade80",Medel:"#fbbf24",Hög:"#f87171"}[v]||"#94a3b8"}),
-  injBadge:{fontSize:"10px",background:"#7f1d1d",color:"#fca5a5",borderRadius:"4px",padding:"1px 4px",marginLeft:"3px"},
-  doubtBadge:{fontSize:"10px",background:"#713f12",color:"#fde68a",borderRadius:"4px",padding:"1px 4px",marginLeft:"3px"},
-  error:{background:"#1e293b",border:".5px solid #7f1d1d",borderRadius:"14px",padding:"16px",marginTop:"16px",color:"#f87171",fontSize:"13px"},
-  disclaimer:{fontSize:"11px",color:"#475569",textAlign:"center",marginTop:"16px",lineHeight:"1.5"}
+  root:{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,background:T.bg,maxWidth:"640px",margin:"0 auto",padding:"28px 20px 40px",minHeight:"100vh"},
+
+  hdr:{marginBottom:"28px",paddingBottom:"20px",borderBottom:`1px solid ${T.line}`},
+  hdrTitle:{fontSize:"15px",fontWeight:"500",color:T.ink,letterSpacing:"-.01em"},
+  hdrSub:{fontSize:"13px",color:T.mut,marginTop:"2px"},
+  stats:{display:"flex",gap:"24px",marginTop:"18px",flexWrap:"wrap"},
+  stat:{},
+  statVal:{fontSize:"20px",fontWeight:"400",color:T.ink,letterSpacing:"-.02em"},
+  statLbl:{fontSize:"11px",color:T.mut,marginTop:"1px"},
+  oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",marginTop:"16px",color:on?T.good:T.mut}),
+  oddsWarn:{fontSize:"11px",color:T.warn,marginTop:"5px",lineHeight:1.5},
+
+  tabs:{display:"flex",gap:"18px",borderBottom:`1px solid ${T.line}`,marginBottom:"24px",overflowX:"auto"},
+  tab:(a)=>({flexShrink:0,padding:"0 0 10px",border:"none",background:"none",cursor:"pointer",fontSize:"13px",fontWeight:a?"500":"400",color:a?T.ink:T.mut,borderBottom:`1px solid ${a?T.ink:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
+
+  squad:{marginBottom:"28px"},
+  sLbl:{fontSize:"11px",color:T.mut,marginBottom:"10px"},
+  bLbl:{fontSize:"11px",color:T.mut,margin:"18px 0 10px"},
+  chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:"6px",background:T.card,border:`1px solid ${T.line}`,borderRadius:"6px",padding:"5px 9px",margin:"0 5px 5px 0",fontSize:"12px",color:T.ink,opacity:bench?.55:1}),
+  pos:(t)=>({fontSize:"9px",fontWeight:"600",letterSpacing:".04em",padding:"2px 4px",borderRadius:"3px",...POS_TINT[t]}),
+
+  btn:(d)=>({width:"100%",padding:"14px",background:d?T.card:T.ink,color:d?T.mut:T.bg,border:"none",borderRadius:"8px",fontSize:"14px",fontWeight:"500",cursor:d?"not-allowed":"pointer",fontFamily:"inherit"}),
+  secTitle:{fontSize:"11px",color:T.mut,marginBottom:"14px"},
+
+  // ── Veckan ──────────────────────────────────────────────────────────────
+  weekBlock:{marginBottom:"30px"},
+  weekKicker:{fontSize:"11px",color:T.mut,marginBottom:"8px"},
+  weekLead:{fontSize:"22px",fontWeight:"400",color:T.ink,lineHeight:1.3,letterSpacing:"-.02em"},
+  weekSub:{fontSize:"14px",color:T.mut,marginTop:"7px",lineHeight:1.6},
+  weekRule:{border:"none",borderTop:`1px solid ${T.line}`,margin:"30px 0"},
+  weekFlag:(kind)=>({display:"flex",gap:"9px",alignItems:"flex-start",fontSize:"14px",lineHeight:1.6,color:T.ink,marginBottom:"9px"}),
+  weekDot:(col)=>({width:"6px",height:"6px",borderRadius:"50%",background:col,marginTop:"7px",flexShrink:0}),
+  weekMuted:{color:T.mut},
+  weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13px",color:T.ink,textDecoration:"underline",textUnderlineOffset:"3px",cursor:"pointer"},
+
+  card:(t)=>({background:T.card,borderRadius:"10px",padding:"18px",marginBottom:"12px",border:`1px solid ${T.line}`}),
+  cardHdr:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"6px",flexWrap:"wrap"},
+  tag:(t)=>({fontSize:"11px",color:T.mut}),
+  cardTitle:{fontSize:"15px",fontWeight:"500",color:T.ink,flex:1},
+  xpPill:(xp)=>({fontSize:"12px",fontWeight:"500",color:xpColor(xp)}),
+  netPill:(n)=>({fontSize:"13px",fontWeight:"500",color:n>=0.5?T.good:n>0?T.warn:T.bad}),
+  mathRow:{fontSize:"12px",color:T.mut,marginBottom:"14px",lineHeight:1.6},
+  verdictYes:{marginTop:"3px",color:T.good,fontWeight:"500"},
+  verdictMeh:{marginTop:"3px",color:T.warn,fontWeight:"500"},
+  verdictNo:{marginTop:"3px",color:T.bad,fontWeight:"500"},
+  ftBox:{padding:"14px 16px",background:T.card,border:`1px solid ${T.line}`,borderRadius:"10px",marginBottom:"16px",fontSize:"13px",color:T.ink,lineHeight:1.7},
+
+  transfer:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px",fontSize:"14px",flexWrap:"wrap"},
+  reason:{fontSize:"13px",color:T.mut,lineHeight:1.7,marginBottom:"10px"},
+  fixtures:{fontSize:"11px",color:T.mut,marginBottom:"14px",lineHeight:1.8},
+  news:{display:"flex",gap:"7px",background:T.warnBg,borderRadius:"7px",padding:"9px 11px",marginBottom:"12px",fontSize:"12px",color:T.warn,lineHeight:1.5},
+  risks:{display:"flex",gap:"22px",flexWrap:"wrap"},
+  rb:(bg)=>({}),
+  rl:{fontSize:"10px",color:T.mut,marginBottom:"2px"},
+  rv:(v)=>({fontSize:"12px",fontWeight:"500",color:{Låg:T.good,Medel:T.warn,Hög:T.bad}[v]||T.ink}),
+
+  injBadge:{fontSize:"10px",color:T.bad,marginLeft:"2px"},
+  doubtBadge:{fontSize:"10px",color:T.warn,marginLeft:"2px"},
+  error:{border:`1px solid ${T.bad}`,borderRadius:"10px",padding:"16px",marginTop:"16px",color:T.bad,fontSize:"13px",lineHeight:1.6},
+  disclaimer:{fontSize:"11px",color:T.mut,marginTop:"32px",paddingTop:"18px",borderTop:`1px solid ${T.line}`,lineHeight:1.6}
 };
 
 function PlayerChip({p,bench,fm}){
@@ -427,10 +465,10 @@ function PlayerChip({p,bench,fm}){
     <span style={c.chip(bench)}>
       <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
       {p.web_name}
-      <span style={{color:"#64748b",fontSize:"11px"}}>£{(p.now_cost/10).toFixed(1)}</span>
+      <span style={{color:T.mut,fontSize:"11px"}}>£{(p.now_cost/10).toFixed(1)}</span>
       <span style={{color:xpColor(e.xp),fontSize:"11px",fontWeight:"600"}}>{e.xp.toFixed(1)}</span>
-      {p.isCaptain&&<span style={{color:"#fbbf24",fontSize:"11px"}}>©</span>}
-      {p.isVice&&<span style={{color:"#6b7280",fontSize:"11px"}}>v</span>}
+      {p.isCaptain&&<span style={{color:T.warn,fontSize:"11px"}}>©</span>}
+      {p.isVice&&<span style={{color:T.mut,fontSize:"11px"}}>v</span>}
       {isInjured(p)&&<span style={c.injBadge}>❌</span>}
       {!isInjured(p)&&isDoubtful(p)&&<span style={c.doubtBadge}>⚠</span>}
     </span>
@@ -438,7 +476,7 @@ function PlayerChip({p,bench,fm}){
 }
 
 function TransferCard({rec}){
-  const riskBg={Låg:"#052e16",Medel:"#1c1917",Hög:"#2d0a0a"};
+  const riskBg={Låg:T.good,Medel:T.card,Hög:"#FAEFEC"};
   return(
     <div style={c.card(rec.type)}>
       <div style={c.cardHdr}>
@@ -454,19 +492,19 @@ function TransferCard({rec}){
         {rec.verdict==="ja" && <div style={c.verdictYes}>Värd det? Ja.</div>}
       </div>
       <div style={c.transfer}>
-        <span style={{color:"#f87171",fontWeight:"500",fontSize:"14px"}}>▼ {rec.out}</span>
-        <span style={{color:"#64748b"}}>→</span>
-        <span style={{color:"#4ade80",fontWeight:"500",fontSize:"14px"}}>▲ {rec.inn}</span>
-        <span style={{marginLeft:"auto",fontSize:"12px",color:"#94a3b8"}}>{rec.priceDiff}</span>
+        <span style={{color:T.bad,fontWeight:"500",fontSize:"14px"}}>▼ {rec.out}</span>
+        <span style={{color:T.mut}}>→</span>
+        <span style={{color:T.good,fontWeight:"500",fontSize:"14px"}}>▲ {rec.inn}</span>
+        <span style={{marginLeft:"auto",fontSize:"12px",color:T.mut}}>{rec.priceDiff}</span>
       </div>
       {rec.news&&<div style={c.news}><span>⚠</span><span>{rec.news}</span></div>}
       <p style={c.reason}>{rec.reason}</p>
       <p style={c.fixtures}>{rec.fixtures}</p>
       <div style={c.risks}>
-        {[["Risk",rec.risk,riskBg[rec.risk]||"#1c1917"],["Potential",rec.reward,riskBg[rec.reward]||"#1c1917"],["Omgång",rec.gwImpact,"#0f172a"],["Ägs av",`${num(rec.own).toFixed(1)}%`,"#0f172a"]].map(([lbl,val,bg],i)=>(
+        {[["Risk",rec.risk,riskBg[rec.risk]||T.card],["Potential",rec.reward,riskBg[rec.reward]||T.card],["Omgång",rec.gwImpact,T.card],["Ägs av",`${num(rec.own).toFixed(1)}%`,T.card]].map(([lbl,val,bg],i)=>(
           <div key={i} style={c.rb(bg)}>
             <div style={c.rl}>{lbl}</div>
-            <div style={i<2?c.rv(val):{fontSize:"12px",fontWeight:"500",color:"#94a3b8"}}>{val}</div>
+            <div style={i<2?c.rv(val):{fontSize:"12px",fontWeight:"500",color:T.mut}}>{val}</div>
           </div>
         ))}
       </div>
@@ -483,46 +521,143 @@ function ChipTab({starters,bench,fm,tb,gw,bs}){
       {chips.map(chip=>{
         const open=expanded===chip.id;
         return(
-          <div key={chip.id} style={{background:"#1e293b",borderRadius:"14px",overflow:"hidden",marginBottom:"10px",border:`.5px solid ${open?"#4f46e5":"#334155"}`}}>
+          <div key={chip.id} style={{background:T.card,borderRadius:"14px",overflow:"hidden",marginBottom:"10px",border:`.5px solid ${open?T.ink:T.line}`}}>
             <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"16px",cursor:"pointer"}} onClick={()=>setExpanded(open?null:chip.id)}>
               <div style={{fontSize:"24px",width:"36px",textAlign:"center"}}>{chip.icon}</div>
-              <div style={{flex:1}}><div style={{fontWeight:"600",fontSize:"15px",color:"white"}}>{chip.name}</div></div>
-              <div style={{background:chip.verdictColor==="#4ade80"?"#052e16":chip.verdictColor==="#fbbf24"?"#1c0d00":"#0f172a",borderRadius:"20px",padding:"5px 14px"}}>
+              <div style={{flex:1}}><div style={{fontWeight:"600",fontSize:"15px",color:T.ink}}>{chip.name}</div></div>
+              <div style={{background:chip.verdictColor===T.good?T.good:chip.verdictColor===T.warn?T.warnBg:T.card,borderRadius:"20px",padding:"5px 14px"}}>
                 <span style={{fontSize:"12px",fontWeight:"700",color:chip.verdictColor,letterSpacing:".05em"}}>{chip.verdict}</span>
               </div>
-              <span style={{color:"#64748b",fontSize:"14px"}}>{open?"▲":"▼"}</span>
+              <span style={{color:T.mut,fontSize:"14px"}}>{open?"▲":"▼"}</span>
             </div>
             {open&&(
-              <div style={{padding:"0 16px 16px",borderTop:".5px solid #334155"}}>
+              <div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.line}`}}>
                 {chip.player&&(
-                  <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"14px 0 12px",padding:"10px 12px",background:"#451a03",borderRadius:"10px",border:".5px solid #b45309"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"14px 0 12px",padding:"10px 12px",background:T.warnBg,borderRadius:"10px",border:`1px solid ${T.warn}`}}>
                     <span style={{fontSize:"18px"}}>⚡</span>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:"13px",fontWeight:"500",color:"#fbbf24"}}>{chip.player.web_name}</div>
-                      <div style={{fontSize:"11px",color:"#9ca3af"}}>{estimateXp(chip.player,fm).xp.toFixed(1)} xP · {nextOpp(chip.player.team,fm,tb)}</div>
+                      <div style={{fontSize:"13px",fontWeight:"500",color:T.warn}}>{chip.player.web_name}</div>
+                      <div style={{fontSize:"11px",color:T.mut}}>{estimateXp(chip.player,fm).xp.toFixed(1)} xP · {nextOpp(chip.player.team,fm,tb)}</div>
                     </div>
                     <div style={{background:fdrBg(nextFdr(chip.player.team,fm)),color:fdrTx(nextFdr(chip.player.team,fm)),borderRadius:"6px",padding:"3px 8px",fontSize:"11px",fontWeight:"500"}}>FDR {nextFdr(chip.player.team,fm)}</div>
                   </div>
                 )}
                 {chip.pros.length>0&&(
                   <div style={{marginTop:"14px"}}>
-                    <div style={{fontSize:"11px",color:"#4ade80",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✓ Argument för att köra nu</div>
-                    {chip.pros.map((pro,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#052e16",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:"#cbd5e1",lineHeight:"1.5"}}><span style={{color:"#4ade80",flexShrink:0}}>+</span>{pro}</div>))}
+                    <div style={{fontSize:"11px",color:T.good,fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✓ Argument för att köra nu</div>
+                    {chip.pros.map((pro,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:T.good,borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.good,flexShrink:0}}>+</span>{pro}</div>))}
                   </div>
                 )}
                 {chip.cons.length>0&&(
                   <div style={{marginTop:"10px"}}>
-                    <div style={{fontSize:"11px",color:"#f87171",fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✗ Argument för att avvakta</div>
-                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#2d0a0a",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:"#cbd5e1",lineHeight:"1.5"}}><span style={{color:"#f87171",flexShrink:0}}>–</span>{con}</div>))}
+                    <div style={{fontSize:"11px",color:T.bad,fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✗ Argument för att avvakta</div>
+                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#FAEFEC",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.bad,flexShrink:0}}>–</span>{con}</div>))}
                   </div>
                 )}
-                {chip.pros.length===0&&chip.cons.length===0&&<div style={{padding:"12px 0",fontSize:"13px",color:"#64748b"}}>Inte tillräckligt med data denna omgång.</div>}
-                <div style={{background:"#0f172a",borderRadius:"10px",padding:"10px 12px",marginTop:"12px",fontSize:"12px",color:"#64748b",lineHeight:"1.6"}}>{chip.tip}</div>
+                {chip.pros.length===0&&chip.cons.length===0&&<div style={{padding:"12px 0",fontSize:"13px",color:T.mut}}>Inte tillräckligt med data denna omgång.</div>}
+                <div style={{background:T.card,borderRadius:"10px",padding:"10px 12px",marginTop:"12px",fontSize:"12px",color:T.mut,lineHeight:"1.6"}}>{chip.tip}</div>
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Veckan: ett svar pa "vad gor jag den har omgangen?" ────────────────────
+// Allt annat i boten ar fordjupning. Den har vyn ska ga att lasa pa tio
+// sekunder och sluta med ett beslut, inte med atta flikar att sortera sjalv.
+function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,setTab}){
+  const cap = useMemo(()=>[...starters].filter(p=>p.element_type!==1)
+    .sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0],[starters,fm]);
+  const recs = useMemo(()=>buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers),
+    [starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
+
+  const best = recs.length ? recs.reduce((a,b)=>b.net>a.net?b:a) : null;
+  const worthIt = best && best.verdict!=="nej";
+
+  const hurt = starters.filter(p=>isInjured(p));
+  const doubt = starters.filter(p=>!isInjured(p)&&isDoubtful(p));
+  const benchOk = bench.filter(p=>!isInjured(p)&&xMins(p)>=0.5).length;
+  const benchDead = bench.filter(p=>isInjured(p)).length;
+
+  const capFx = (fm[cap?.team]||[])[0];
+  const capXp = cap?estimateXp(cap,fm).xp:0;
+
+  return(
+    <div>
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Kaptensbandet</div>
+        {cap ? <>
+          <div style={c.weekLead}>Sätt bandet på {cap.web_name}</div>
+          <div style={c.weekSub}>
+            {capXp.toFixed(1)} xP — högst i din startelva.
+            {capFx && <> {capFx.home?"Hemma mot":"Borta mot"} {tb[capFx.oppId]?.name}.</>}
+            {" "}Kaptenen räknas dubbelt, så det är veckans enskilt största beslut.
+          </div>
+        </> : <div style={c.weekLead}>Ingen kaptenskandidat hittad.</div>}
+        <div style={{marginTop:"10px"}}>
+          <button style={c.weekLink} onClick={()=>setTab("captain")}>Se hela rankningen</button>
+        </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Transfer</div>
+        {worthIt ? <>
+          <div style={c.weekLead}>Byt {best.out} mot {best.inn}</div>
+          <div style={c.weekSub}>
+            Vinst {best.gain>=0?"+":""}{best.gain.toFixed(1)} xP över {best.horizon}.
+            {best.cost>0
+              ? <> Du har inga fria transfers kvar, så det kostar −4 — netto {best.net.toFixed(1)}.</>
+              : <> Ryms i din {freeTransfers===1?"fria transfer":"fria transfers"}.</>}
+          </div>
+        </> : <>
+          <div style={c.weekLead}>Gör ingen transfer</div>
+          <div style={c.weekSub}>
+            {best
+              ? <>Bästa alternativet ger {best.gain>=0?"+":""}{best.gain.toFixed(1)} xP{best.cost>0?<> och kostar −4</>:null}. Spara {freeTransfers===1?"den":"dem"} — en bankad transfer är värd mer nästa vecka när du vet mer.</>
+              : <>Inga byten inom budget som förbättrar laget.</>}
+          </div>
+        </>}
+        <div style={{marginTop:"10px"}}>
+          <button style={c.weekLink} onClick={()=>setTab("transfers")}>Se alla alternativ</button>
+        </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Att hålla koll på</div>
+        {hurt.map(p=>(
+          <div key={p.id} style={c.weekFlag()}>
+            <span style={c.weekDot(T.bad)}/>
+            <span><strong>{p.web_name}</strong> spelar inte. {p.news||"Utanför truppen."} Han ger noll poäng om han står kvar i startelvan.</span>
+          </div>
+        ))}
+        {doubt.map(p=>(
+          <div key={p.id} style={c.weekFlag()}>
+            <span style={c.weekDot(T.warn)}/>
+            <span><strong>{p.web_name}</strong> är osäker — {(xMins(p)*100).toFixed(0)}% speltid. {p.news||""}</span>
+          </div>
+        ))}
+        {hurt.length===0&&doubt.length===0 && (
+          <div style={c.weekFlag()}>
+            <span style={c.weekDot(T.good)}/>
+            <span>Inga skador eller tveksamheter i din startelva.</span>
+          </div>
+        )}
+        {/* Bänken avgör om auto-bytena räddar dig när en startspelare uteblir,
+            så den ska stå här varje vecka — inte bara när elvan redan brinner. */}
+        <div style={c.weekFlag()}>
+          <span style={c.weekDot(benchOk>=2?T.good:benchOk===1?T.warn:T.bad)}/>
+          <span>{benchOk===0
+            ? <>Din bänk är tom på spelbara alternativ ({benchDead} av {bench.length} spelar inte). Uteblir en startspelare får du noll för platsen — auto-bytet har ingen att hämta.</>
+            : <>Bänken har {benchOk} spelbar{benchOk===1?"":"a"} av {bench.length}. {benchDead>0 && <>{benchDead} spelar inte{benchOk<2?" — tunn täckning om någon i elvan uteblir":""}.</>}</>}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -535,15 +670,15 @@ function CaptainTab({starters,fm,tb}){
       {ranked.map((p,i)=>{
         const top=i===0;const fdr=nextFdr(p.team,fm);
         return(
-          <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?"#451a03":"#1e293b",border:`.5px solid ${top?"#b45309":"#374151"}`}}>
-            <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?"#fbbf24":"#6b7280",width:"28px",textAlign:"center"}}>{top?"©":i+1}</div>
+          <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?T.warnBg:T.card,border:`.5px solid ${top?T.warn:T.line}`}}>
+            <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?T.warn:T.mut,width:"28px",textAlign:"center"}}>{top?"©":i+1}</div>
             <div style={{flex:1}}>
-              <div style={{fontWeight:"500",fontSize:"14px",color:"#f3f4f6"}}>{p.web_name}</div>
-              <div style={{fontSize:"12px",color:"#9ca3af"}}>{tb[p.team]?.short_name} · {nextOpp(p.team,fm,tb)}</div>
+              <div style={{fontWeight:"500",fontSize:"14px",color:T.ink}}>{p.web_name}</div>
+              <div style={{fontSize:"12px",color:T.mut}}>{tb[p.team]?.short_name} · {nextOpp(p.team,fm,tb)}</div>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:"13px",color:xpColor(p._xp),fontWeight:"600"}}>{p._xp.toFixed(1)} xP</div>
-              <div style={{fontSize:"11px",color:"#34d399"}}>Speltid {(xMins(p)*100).toFixed(0)}%</div>
+              <div style={{fontSize:"11px",color:T.good}}>Speltid {(xMins(p)*100).toFixed(0)}%</div>
             </div>
             <div style={{background:fdrBg(fdr),color:fdrTx(fdr),borderRadius:"8px",padding:"4px 10px",fontSize:"12px",fontWeight:"500"}}>FDR {fdr}</div>
           </div>
@@ -562,27 +697,27 @@ function FixtureTicker({starters,fm,tb}){
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
-            <th style={{textAlign:"left",paddingBottom:"8px",color:"#6b7280",fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
-            {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:"#6b7280",fontWeight:"500",minWidth:"60px"}}>GW{g}</th>)}
-            <th style={{textAlign:"right",paddingBottom:"8px",color:"#6b7280",fontWeight:"500"}}>Snitt</th>
+            <th style={{textAlign:"left",paddingBottom:"8px",color:T.mut,fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
+            {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:T.mut,fontWeight:"500",minWidth:"60px"}}>GW{g}</th>)}
+            <th style={{textAlign:"right",paddingBottom:"8px",color:T.mut,fontWeight:"500"}}>Snitt</th>
           </tr></thead>
           <tbody>
             {sorted.map(p=>{
               const avg=avgFdr(p.team,fm,5);
               return(
-                <tr key={p.id} style={{borderTop:".5px solid #1e293b"}}>
+                <tr key={p.id} style={{borderTop:`1px solid ${T.line}`}}>
                   <td style={{padding:"5px 8px 5px 0"}}>
-                    <div style={{fontWeight:"500",fontSize:"13px",color:"#f3f4f6"}}>{p.web_name}</div>
-                    <div style={{fontSize:"11px",color:"#6b7280"}}>{tb[p.team]?.short_name}</div>
+                    <div style={{fontWeight:"500",fontSize:"13px",color:T.ink}}>{p.web_name}</div>
+                    <div style={{fontSize:"11px",color:T.mut}}>{tb[p.team]?.short_name}</div>
                   </td>
                   {gws.map(g=>{
                     const f=(fm[p.team]||[]).find(fx=>fx.gw===g);
-                    if(!f)return<td key={g} style={{textAlign:"center"}}><span style={{color:"#374151"}}>–</span></td>;
+                    if(!f)return<td key={g} style={{textAlign:"center"}}><span style={{color:T.line}}>–</span></td>;
                     return(<td key={g} style={{textAlign:"center",padding:"3px 2px"}}>
                       <div style={{background:fdrBg(f.diff),color:fdrTx(f.diff),borderRadius:"5px",padding:"2px 5px",fontSize:"11px",fontWeight:"500",display:"inline-block",whiteSpace:"nowrap"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</div>
                     </td>);
                   })}
-                  <td style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?"#4ade80":avg<=3.5?"#fbbf24":"#f87171"}}>{avg.toFixed(1)}</span></td>
+                  <td style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?T.good:avg<=3.5?T.warn:T.bad}}>{avg.toFixed(1)}</span></td>
                 </tr>
               );
             })}
@@ -593,71 +728,23 @@ function FixtureTicker({starters,fm,tb}){
   );
 }
 
-function PriceTrends({starters,bench}){
-  const all=[...starters,...bench];
-  const rising=all.filter(p=>p.cost_change_event>0).sort((a,b)=>b.cost_change_event-a.cost_change_event);
-  const falling=all.filter(p=>p.cost_change_event<0).sort((a,b)=>a.cost_change_event-b.cost_change_event);
-  const Row=({p,up})=>(
-    <div style={{display:"flex",alignItems:"center",gap:"8px",padding:"8px 10px",background:"#1e293b",borderRadius:"8px",marginBottom:"4px"}}>
-      <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
-      <span style={{flex:1,fontSize:"13px",color:"#f1f5f9"}}>{p.web_name}</span>
-      <span style={{fontSize:"12px",color:"#94a3b8"}}>£{(p.now_cost/10).toFixed(1)}m</span>
-      <span style={{fontSize:"11px",fontWeight:"500",color:up?"#4ade80":"#f87171"}}>{up?"▲":"▼"} {up?"+":""}{(p.cost_change_event/10).toFixed(1)}m</span>
-    </div>
-  );
-  return(
-    <div>
-      {rising.length>0&&<><div style={c.secTitle}>Stiger i pris</div>{rising.map(p=><Row key={p.id} p={p} up={true}/>)}</>}
-      {falling.length>0&&<><div style={{...c.secTitle,marginTop:"14px"}}>Sjunker i pris</div>{falling.map(p=><Row key={p.id} p={p} up={false}/>)}</>}
-      {rising.length===0&&falling.length===0&&<div style={{fontSize:"13px",color:"#64748b"}}>Inga prisförändringar denna GW.</div>}
-    </div>
-  );
-}
-
-function MomentumTab({starters,bench,bs,fm}){
-  const myIds=new Set([...starters,...bench].map(p=>p.id));
-  const els=bs.elements||[];
-  const maxIn=els.length?Math.max(1,...els.map(p=>p.transfers_in_event||0)):1;
-  const maxOut=els.length?Math.max(1,...els.map(p=>p.transfers_out_event||0)):1;
-  const hotIn=els.filter(p=>!myIds.has(p.id)&&xMins(p)>=0.5).sort((a,b)=>(b.transfers_in_event||0)-(a.transfers_in_event||0)).slice(0,5);
-  const mySold=[...starters,...bench].filter(p=>(p.transfers_out_event||0)>500).sort((a,b)=>(b.transfers_out_event||0)-(a.transfers_out_event||0));
-  const Row=({p,val,max,up})=>(
-    <div style={{padding:"8px 10px",background:"#1e293b",borderRadius:"8px",marginBottom:"4px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}}>
-        <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
-        <span style={{flex:1,fontSize:"13px",color:"#f1f5f9"}}>{p.web_name}</span>
-        <span style={{fontSize:"12px",color:xpColor(estimateXp(p,fm).xp),fontWeight:"600"}}>{estimateXp(p,fm).xp.toFixed(1)} xP</span>
-        <span style={{fontSize:"12px",color:up?"#4ade80":"#f87171",fontWeight:"500"}}>{up?"▲":"▼"} {(val||0).toLocaleString("sv-SE")}</span>
-      </div>
-      <div style={{background:"#0f172a",borderRadius:"3px",height:"6px",overflow:"hidden"}}><div style={{height:"6px",width:`${Math.min(((val||0)/max)*100,100)}%`,background:up?"#16a34a":"#dc2626",borderRadius:"3px"}}/></div>
-    </div>
-  );
-  return(
-    <div>
-      <div style={c.secTitle}>Mest köpta denna GW (ej i ditt lag)</div>
-      {hotIn.map(p=><Row key={p.id} p={p} val={p.transfers_in_event} max={maxIn} up={true}/>)}
-      {mySold.length>0&&<><div style={{...c.secTitle,marginTop:"14px"}}>Dina spelare som säljs av andra</div>{mySold.map(p=><Row key={p.id} p={p} val={p.transfers_out_event} max={maxOut} up={false}/>)}</>}
-    </div>
-  );
-}
-
 function InjuryTab({starters,bench}){
   const all=[...starters,...bench];
   const injured=all.filter(p=>isInjured(p));
   const doubtful=all.filter(p=>!isInjured(p)&&isDoubtful(p));
   const Row=({p,type})=>(
-    <div style={{padding:"8px 10px",background:type==="inj"?"#2d0a0a":"#1c0d00",border:`.5px solid ${type==="inj"?"#7f1d1d":"#713f12"}`,borderRadius:"8px",marginBottom:"4px"}}>
+    <div style={{padding:"8px 10px",background:type==="inj"?"#FAEFEC":T.warnBg,border:`.5px solid ${type==="inj"?T.bad:T.warn}`,borderRadius:"8px",marginBottom:"4px"}}>
       <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
         <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
-        <span style={{flex:1,fontSize:"13px",color:"#f1f5f9",fontWeight:"500"}}>{p.web_name}</span>
-        <span style={{fontSize:"11px",color:type==="inj"?"#f87171":"#fde68a"}}>{type==="inj"?"Ej tillgänglig":`Osäker (${p.chance_of_playing_next_round}%)`}</span>
+        <span style={{flex:1,fontSize:"13px",color:T.ink,fontWeight:"500"}}>{p.web_name}</span>
+        <span style={{fontSize:"11px",color:type==="inj"?T.bad:T.warn}}>{type==="inj"?"Ej tillgänglig":`Osäker (${p.chance_of_playing_next_round}%)`}</span>
       </div>
-      {p.news&&<div style={{fontSize:"11px",color:"#9ca3af",marginTop:"4px",paddingLeft:"24px"}}>{p.news}</div>}
+      {p.news&&<div style={{fontSize:"11px",color:T.mut,marginTop:"4px",paddingLeft:"24px"}}>{p.news}</div>}
     </div>
   );
   return(
     <div>
-      {injured.length===0&&doubtful.length===0&&<div style={{fontSize:"13px",color:"#4ade80",padding:"12px 0"}}>✓ Inga skador eller osäkra spelare!</div>}
+      {injured.length===0&&doubtful.length===0&&<div style={{fontSize:"13px",color:T.good,padding:"12px 0"}}>✓ Inga skador eller osäkra spelare!</div>}
       {injured.length>0&&<><div style={c.secTitle}>Skadade</div>{injured.map(p=><Row key={p.id} p={p} type="inj"/>)}</>}
       {doubtful.length>0&&<><div style={{...c.secTitle,marginTop:"12px"}}>Osäkra</div>{doubtful.map(p=><Row key={p.id} p={p} type="doubt"/>)}</>}
     </div>
@@ -665,12 +752,11 @@ function InjuryTab({starters,bench}){
 }
 
 const TABS=[
-  {id:"transfers",label:"Byten"},
-  {id:"chips",label:"⚡ Chips"},
-  {id:"fixtures",label:"Fixtures"},
+  {id:"week",label:"Veckan"},
   {id:"captain",label:"Kapten"},
-  {id:"momentum",label:"Momentum"},
-  {id:"prices",label:"Priser"},
+  {id:"transfers",label:"Byten"},
+  {id:"fixtures",label:"Fixtures"},
+  {id:"chips",label:"Chips"},
   {id:"injuries",label:"Skador"},
 ];
 
@@ -680,7 +766,7 @@ function App(){
   const [error,setError]=useState(null);
   const [analyzing,setAnalyzing]=useState(false);
   const [results,setResults]=useState(null);
-  const [tab,setTab]=useState("transfers");
+  const [tab,setTab]=useState("week");
   const [oddsStatus,setOddsStatus]=useState("off");
 
   useEffect(()=>{
@@ -733,7 +819,7 @@ function App(){
     },400);
   }
 
-  if(loading)return<div style={{padding:"3rem",textAlign:"center",color:"#64748b",fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
+  if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
   const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers}=fplData;
 
@@ -776,6 +862,7 @@ function App(){
         {TABS.map(t=><button key={t.id} style={c.tab(tab===t.id)} onClick={()=>setTab(t.id)}>{t.label}</button>)}
       </div>
 
+      {tab==="week"&&<WeekTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw} freeTransfers={freeTransfers} setTab={setTab}/>}
       {tab==="transfers"&&(
         <div>
           <div style={c.ftBox}>
@@ -786,20 +873,18 @@ function App(){
           <button style={c.btn(analyzing)} onClick={runTransfers} disabled={analyzing}>{analyzing?"Analyserar...":"✦ Visa mina alternativ"}</button>
           {results&&<div style={{marginTop:"16px"}}>
             {results.every(r=>r.verdict==="nej") &&
-              <div style={{...c.ftBox,borderColor:"#166534",color:"#4ade80"}}>
+              <div style={{...c.ftBox,borderColor:T.good,color:T.good}}>
                 <strong>Rekommendation: gör ingenting.</strong> Inget av alternativen nedan går plus.
                 Att spara transfern är ett fullgott drag — de flesta omgångar är det rätt svar.
               </div>}
             {results.map((rec,i)=><TransferCard key={i} rec={rec}/>)}
           </div>}
-          {!results&&<div style={{fontSize:"13px",color:"#64748b",textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
+          {!results&&<div style={{fontSize:"13px",color:T.mut,textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
         </div>
       )}
       {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs}/>}
       {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
-      {tab==="momentum"&&<MomentumTab starters={starters} bench={bench} bs={bs} fm={fm}/>}
-      {tab==="prices"&&<PriceTrends starters={starters} bench={bench}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
       <div style={c.disclaimer}>xP-modell byggd på speltidsandel (xMins), xG/xA per 90, clean sheet-sannolikhet och fixtures. Odds kopplas på via plugin. Alltid ditt eget ansvar att fatta det slutliga beslutet.</div>
