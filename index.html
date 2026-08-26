@@ -78,7 +78,6 @@ const ODDS = {
 function avgFdr(tid,fm,n=5){const fx=(fm[tid]||[]).slice(0,n);return fx.length?fx.reduce((s,f)=>s+f.diff,0)/fx.length:3;}
 function nextFdr(tid,fm){return(fm[tid]||[])[0]?.diff||3;}
 function nextOpp(tid,fm,tb){const f=(fm[tid]||[])[0];return f?`${tb[f.oppId]?.short_name||"?"}(${f.home?"H":"B"})`:"-";}
-function nextIsHome(tid,fm){return(fm[tid]||[])[0]?.home||false;}
 function fxStr(tid,fm,tb,n=5){return(fm[tid]||[]).slice(0,n).map(f=>`GW${f.gw} ${tb[f.oppId]?.short_name}(${f.home?"H":"B"},${f.diff})`).join(" · ");}
 
 // ── Status-helpers ──────────────────────────────────────────────────────────
@@ -108,7 +107,37 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
 // Antal spelade omgångar. Sätts när bootstrap laddats. xMins behöver veta hur
 // många chanser en spelare HAFT att spela, annars går andelen inte att räkna.
-const SEASON = { gamesPlayed: 0 };
+const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1 };
+
+// Lagets insläppta xG per 90, krympt mot ligasnittet efter hur många omgångar
+// som hunnit spelas — samma disciplin som xMins.
+//
+// Varför: mätt mot bookmakerns (de-viggade) clean sheet-odds för GW2 gav den
+// OKRYMPTA modellen RMSE 0.18, medan att bara gissa ligasnittet för alla lag
+// gav 0.093. Lagets egen siffra efter en match var alltså SÄMRE än ingen
+// information alls — Arsenal låg på 85% nolla i modellen mot oddsens 42%.
+// Med krympning k=2 föll felet till 0.089. Krympningen släpper taget av sig
+// själv när underlaget växer.
+const XGC_PSEUDO_GAMES = 2;
+function buildTeamXgc(bs){
+  const acc={};
+  for(const p of bs.elements){
+    if(num(p.minutes)<45) continue;
+    (acc[p.team] ??= []).push(num(p.expected_goals_conceded_per_90));
+  }
+  const raw={};
+  for(const [t,v] of Object.entries(acc)) raw[t]=v.reduce((a,b)=>a+b,0)/v.length;
+  const vals=Object.values(raw);
+  const league=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:1.4;
+  const g=SEASON.gamesPlayed;
+  const out={};
+  for(const t of bs.teams){
+    const r = raw[t.id] ?? league;
+    out[t.id] = (r*g + league*XGC_PSEUDO_GAMES)/(g+XGC_PSEUDO_GAMES);
+  }
+  SEASON.xgcLeague=league;
+  return out;
+}
 
 // xMins: 0..1 förväntad andel av matchens minuter nästa GW.
 //
@@ -134,26 +163,52 @@ function xMins(p){
   return Math.max(0,Math.min(base,1));
 }
 
-// Anfallshot per 90 från underliggande data.
+// Anfallshot per 90, krympt mot positionens baslinje efter spelade minuter.
+//
+// Rå xGI per 90 är brus efter få omgångar: Guéhi, en FÖRSVARARE, låg på 1.21
+// efter att ha gjort mål på 0.89 xG i sin enda match — modellen projicerade
+// det som en takt för resten av säsongen. Mätt mot GW2:s odds halverade
+// krympningen felet (RMSE 0.83 → 0.39). Den släpper taget när underlaget växer.
+const XGI_PSEUDO_MINUTES = 270;
 function attackPer90(p){
-  const xgi90 = num(p.expected_goal_involvements_per_90);
-  if(xgi90>0) return xgi90;
-  // Om per-90 saknas, härled från totaler och minuter (ingen form-fallback).
-  const xgi = num(p.expected_goals)+num(p.expected_assists);
+  const base = SEASON.xgiPrior?.[p.element_type] ?? 0.2;
   const mins = num(p.minutes);
-  return mins>0 ? xgi/(mins/90) : 0;
+  const tot = num(p.expected_goal_involvements);
+  return (tot + base*XGI_PSEUDO_MINUTES/90) / ((mins + XGI_PSEUDO_MINUTES)/90);
 }
 
-// Clean sheet-sannolikhet för spelarens lag nästa GW (0..1).
-// Odds om tillgängligt, annars xGC-proxy.
-function cleanSheetProb(p,fm){
-  if(ODDS.enabled && ODDS.byTeam[p.team]?.csProb!=null){
+// Positionens minutviktade xGI per 90. Baslinjen krympningen drar mot.
+function buildXgiPrior(bs){
+  const out={};
+  for(const t of [1,2,3,4]){
+    let x=0,m=0;
+    for(const p of bs.elements){
+      if(p.element_type!==t || num(p.minutes)<=0) continue;
+      x+=num(p.expected_goal_involvements); m+=num(p.minutes);
+    }
+    out[t] = m>0 ? x/m*90 : 0.2;
+  }
+  return out;
+}
+
+// Hemmafördel och fixtursvårighet i clean sheet-modellen. Anpassade mot
+// bookmakerns odds för GW2 (20 lag). Den gamla koden hade 0.88/1.12, alltså
+// ett hemmaövertag på 27% — anpassningen säger 10%. Bör räknas om när fler
+// omgångar spelats; underlaget är tunt.
+const CS_HOME_FACTOR = 1.10, CS_FDR_TILT = 0.26;
+
+// Clean sheet-sannolikhet för spelarens lag i en given omgång (0..1).
+// Odds används bara för NÄSTA omgång — det är den enda de gäller.
+function cleanSheetProbAt(p,fm,gw,isNextGw){
+  if(isNextGw && ODDS.enabled && ODDS.byTeam[p.team]?.csProb!=null){
     return ODDS.byTeam[p.team].csProb;
   }
-  const xgc90 = num(p.expected_goals_conceded_per_90);
-  const home = nextIsHome(p.team,fm);
-  // Enkel Poisson: P(0 insläppta) = e^(-xGC), justerat för hemmaplan.
-  const lambda = (xgc90>0?xgc90:1.4) * (home?0.88:1.12);
+  const f=(fm[p.team]||[]).find(x=>x.gw===gw);
+  if(!f) return 0;                      // blank omgång: ingen match, ingen nolla
+  const base = SEASON.xgc?.[p.team] ?? SEASON.xgcLeague;
+  const lambda = base
+    * (f.home ? 1/CS_HOME_FACTOR : CS_HOME_FACTOR)
+    * Math.exp(CS_FDR_TILT*(f.diff-3));
   return Math.exp(-lambda);
 }
 
@@ -166,49 +221,87 @@ function oddsAttackXp(p,mult){
   return num(o.anytimeProb)*goalPts + num(o.assistProb)*3*mult;
 }
 
-// ── xP-skattning per spelare nästa GW ───────────────────────────────────────
-// Returnerar { xp, parts } där parts förklarar var poängen kommer ifrån.
-function estimateXp(p,fm){
-  const mins = xMins(p);
-  const apptPts = mins>=0.6 ? 2 : (mins>0 ? 1 : 0); // närvaropoäng viktat av xMins
-  const type = p.element_type;
+// Fixtursvårighetens effekt på anfallsavkastning. Anpassad mot GW2:s
+// (marginalkalibrerade) odds för 128 spelare med meningsfull xGI: medianen av
+// odds/xGI-proxy föll monotont 0.48 → 0.32 → 0.26 över FDR 2, 3 och 4.
+//
+// VARNING: R² för den här tilten är 0.031. Riktningen är verklig men
+// motståndet förklarar bara tre procent av variationen mellan spelare — det
+// mesta är brus i xGI efter få omgångar. Använd den som en svag lutning, inte
+// som en prognos.
+const ATK_FDR_TILT = -0.23;
 
-  // Anfallshot: odds om möjligt, annars xGI-proxy → poäng.
-  let attack;
-  const oddsAtt = oddsAttackXp(p,1);
-  if(oddsAtt!=null){
-    attack = oddsAtt;
-  } else {
-    const per90 = attackPer90(p);
-    const goalW = {1:6,2:6,3:5,4:4}[type]||4;
-    // Dela grovt xGI i mål/assist ~60/40 för att vikta poäng korrekt.
-    attack = per90*(0.6*goalW + 0.4*3);
+// De två vägarna till anfallspoäng — bookmakerodds och xGI-proxyn — låg på
+// OLIKA skalor: summerat över spelarna med båda gav proxyn 137.7 poäng mot
+// oddsens 83.1, alltså 1.64 gånger för mycket. Modellen summerade dem ändå i
+// samma xP beroende på vad som råkade finnas, så en spelare med odds och en
+// utan jämfördes med olika måttstock. Samma fel som vig-inkonsekvensen.
+//
+// Oddsen är marknadspriser och vinner. Skalan mäts om vid varje laddning mot
+// de spelare som har båda, i stället för att spikas som en konstant — då
+// följer den med när underlaget växer.
+function calibrateAttackScale(elements,fm){
+  let sumOdds=0, sumProxy=0;
+  for(const p of elements){
+    const o = oddsAttackXp(p,1);
+    if(o==null || o<=0) continue;
+    const f=(fm[p.team]||[]).find(x=>x.gw===SEASON.nextGw);
+    if(!f) continue;
+    const goalW={1:6,2:6,3:5,4:4}[p.element_type]||4;
+    sumOdds += o;
+    sumProxy += attackPer90(p)*(0.6*goalW+0.4*3)*Math.exp(ATK_FDR_TILT*(f.diff-3));
   }
+  return sumProxy>0 ? sumOdds/sumProxy : 1;
+}
 
-  // Clean sheet-poäng för MV/DEF (4p) och MID (1p).
-  let csPts = 0;
-  if(type===1||type===2) csPts = cleanSheetProb(p,fm)*4;
-  else if(type===3) csPts = cleanSheetProb(p,fm)*1;
+// ── xP-skattning för EN omgång ──────────────────────────────────────────────
+// Hanterar blank (ingen match → 0 poäng) och dubbel (två matcher → summan).
+// Odds gäller bara nästa omgång; längre fram används xG/xGC-modellen.
+function estimateXpAt(p,fm,gw,isNextGw){
+  const mins = xMins(p);
+  const type = p.element_type;
+  const fixtures = (fm[p.team]||[]).filter(f=>f.gw===gw);
+  const empty = {mins,apptPts:0,attack:0,csPts:0,bonus:0,matches:0};
+  if(!fixtures.length) return {xp:0,parts:empty};
 
-  // Bonus-proxy från ICT (lätt vikt, stabilare än form).
-  const bonus = num(p.ict_index)/38*0.15;
+  const apptPer = mins>=0.6 ? 2 : (mins>0 ? 1 : 0);
+  const bonusPer = num(p.ict_index)/38*0.15;
+  const goalW = {1:6,2:6,3:5,4:4}[type]||4;
 
-  const raw = (apptPts + attack + csPts + bonus);
-  const xp = raw * mins; // allt skalas av starttrolighet — kärnprincipen
+  let attack=0, csPts=0;
+  for(const f of fixtures){
+    const oddsAtt = isNextGw ? oddsAttackXp(p,1) : null;
+    attack += oddsAtt!=null
+      ? oddsAtt
+      : attackPer90(p)*(0.6*goalW+0.4*3)*Math.exp(ATK_FDR_TILT*(f.diff-3))*SEASON.attackScale;
+    const cs = cleanSheetProbAt(p,fm,gw,isNextGw);
+    if(type===1||type===2) csPts += cs*4;
+    else if(type===3)      csPts += cs*1;
+  }
+  const apptPts = apptPer*fixtures.length;
+  const bonus = bonusPer*fixtures.length;
   return {
-    xp,
-    parts:{ mins, apptPts, attack, csPts, bonus }
+    xp:(apptPts+attack+csPts+bonus)*mins,
+    parts:{mins,apptPts,attack,csPts,bonus,matches:fixtures.length}
   };
 }
 
-// ── Långsiktig xP: samma modell men fixtursnitt över 5 GW ───────────────────
-function estimateXpLong(p,fm){
-  const base = estimateXp(p,fm);
-  const fdr5 = avgFdr(p.team,fm,5);
-  // Justera för fixtursvårighet framåt (1=lätt,5=svårt → multiplikator 1.15..0.85).
-  const fxMult = 1 + (3 - fdr5)*0.075;
-  return base.xp * fxMult;
+// Nästa omgång — den vanliga ingången. NEXT_GW sätts när bootstrap laddats.
+function estimateXp(p,fm){ return estimateXpAt(p,fm,SEASON.nextGw,true); }
+
+// ── Långsiktig xP: summan över kommande omgångar, per omgång ────────────────
+// Den gamla varianten tog nästa omgångs xP och multiplicerade med en påhittad
+// faktor ur FDR-snittet. Nu räknas varje omgång för sig med sin egen match,
+// vilket också gör blank- och dubbelomgångar rätt i stället för utsmetade.
+const LONG_HORIZON = 5;
+function estimateXpOver(p,fm,fromGw,n=LONG_HORIZON){
+  let sum=0;
+  for(let g=fromGw; g<fromGw+n; g++) sum += estimateXpAt(p,fm,g,g===SEASON.nextGw).xp;
+  return sum;
 }
+// Snitt per omgång, så talet är jämförbart med estimateXp.
+function estimateXpLong(p,fm){ return estimateXpOver(p,fm,SEASON.nextGw)/LONG_HORIZON; }
+
 
 // Ingen separat kaptenscoring. Den gamla la på +0.4 för hemmamatch ovanpå xP,
 // vilket dels räknade hemmaplan två gånger — odds-baserad csProb och
@@ -856,11 +949,14 @@ function App(){
         // Truppen finns bara för en spelad omgång; all planering sker mot nästa.
         // Två skilda begrepp, aldrig samma variabel.
         SEASON.gamesPlayed = bs.events.filter(e=>e.finished).length;
+        SEASON.xgc = buildTeamXgc(bs);
+        SEASON.xgiPrior = buildXgiPrior(bs);
         const squadGw=entry.current_event;
         if(!squadGw)throw new Error("Laget har ingen spelad omgång ännu (entry.current_event saknas) — inget att planera utifrån.");
         const next=bs.events.find(e=>e.is_next);
         if(!next)throw new Error("FPL har ingen kommande omgång (is_next saknas) — går inte att ge råd för nästa GW.");
         const gw=next.id;
+        SEASON.nextGw=gw;
         const [picks,rawFx,history]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),fplFetch("/fixtures/"),fplFetch(`/entry/${TEAM_ID}/history/`)]);
         const freeTransfers=freeTransfersFor(history,gw);
         const chipAvail=chipAvailability(bs,history,gw);
@@ -880,10 +976,14 @@ function App(){
         const bench=myP.filter(p=>p.sqPos>11).sort((a,b)=>a.sqPos-b.sqPos);
 
         // Odds-plugin: försök bara om aktiverad. Ingen tyst fallback.
+        let haveOdds=false;
         if(ODDS.enabled){
-          try{ await ODDS.fetchOdds(); setOddsStatus("on"); }
+          try{ await ODDS.fetchOdds(); setOddsStatus("on"); haveOdds=true; }
           catch(e){ setOddsStatus("error"); }
         }
+        // Skalan mellan odds- och xG-vägen mäts när båda finns. Utan odds
+        // finns inget att kalibrera mot och proxyn får stå som den är.
+        SEASON.attackScale = haveOdds ? calibrateAttackScale(bs.elements,fm) : 1;
 
         setFplData({bs,entry,fm,tb,gw,squadGw,bank,starters,bench,freeTransfers,chipAvail});
       }catch(e){setError(e.message);}
