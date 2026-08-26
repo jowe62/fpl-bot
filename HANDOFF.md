@@ -124,4 +124,5 @@ Fixtures (FDR-ticker), Kapten (rankad på xP), Momentum (transfers in/ut), Prise
 - Kör git- och vercel-kommandon från repo-roten. `vercel link` körd från hemkatalogen
   länkar `~` till projektet i stället för repot.
 - Skriv aldrig "fixad, ej deployad" i det här dokumentet utan att också säga hur man
-  verifierar det. Punkt 1 stod så i månader medan fixen inte fanns i repot alls.
+  verifierar det. Punkt 1 stod så medan fixen inte fanns i repot alls — den kostade
+  en session att upptäcka, för påståendet lät trovärdigt.
