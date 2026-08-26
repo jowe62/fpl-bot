@@ -74,6 +74,19 @@ function lastName(s) {
   return parts[parts.length - 1] || "";
 }
 
+// Namnformer att slå upp på: efternamnet som det står, plus ledet efter sista
+// bindestrecket. Källorna är oense om bindestreck — boken skriver "Ben Doak"
+// och "Ait Nouri" där FPL har "Gannon-Doak" och "Aït-Nouri". Båda formerna
+// indexeras, och kravet på entydighet i matchPlayer ser till att den bredare
+// uppslagningen inte kan gissa fel: blir det flera kandidater och förnamnet
+// inte skiljer dem åt hoppas etiketten över.
+function nameKeys(s) {
+  const ln = lastName(s);
+  if (!ln) return [];
+  const tail = ln.split("-").pop();
+  return tail && tail !== ln ? [ln, tail] : [ln];
+}
+
 async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url.split("?")[0]}`);
@@ -137,7 +150,7 @@ export default async function handler(req, res) {
     // {teamId: {namnform: [players...]}}
     const playersByTeamLast = {};
     for (const p of fplPlayers) {
-      const keys = new Set([p.second_name, p.web_name].map(lastName).filter(Boolean));
+      const keys = new Set([...nameKeys(p.second_name), ...nameKeys(p.web_name)]);
       for (const k of keys) ((playersByTeamLast[p.team] ??= {})[k] ??= []).push(p);
     }
 
@@ -150,11 +163,19 @@ export default async function handler(req, res) {
     // hemmalaget först och tog första träffen, vilket skrev bortaspelarens
     // odds på en hemmaspelare med samma efternamn (Callum Wilson → Harry Wilson).
     function matchPlayer(oddsLabel, fplTeamIds) {
-      const ln = lastName(oddsLabel);
-      const seen = new Map();
-      for (const t of fplTeamIds)
-        for (const p of playersByTeamLast[t]?.[ln] ?? []) seen.set(p.id, p);
-      const cands = [...seen.values()];
+      const [full, tail] = nameKeys(oddsLabel);
+      const collect = (key) => {
+        const seen = new Map();
+        for (const t of fplTeamIds)
+          for (const p of playersByTeamLast[t]?.[key] ?? []) seen.set(p.id, p);
+        return [...seen.values()];
+      };
+      // Exakt efternamnsform först. Vidga till ledet efter bindestrecket bara
+      // om ingenting alls träffade — annars gör bokens "Giraud-Hutchinson"
+      // etiketten "Gibbs-White" tvetydig mot Ben White i onödan. Vi gissar
+      // aldrig mellan kandidater, vi letar bara vidare när listan är tom.
+      let cands = collect(full);
+      if (cands.length === 0 && tail) cands = collect(tail);
       if (cands.length === 0) { unmatched.add(oddsLabel); return null; }
       if (cands.length === 1) return cands[0].id;
       // Flera kandidater: förnamnet måste peka ut exakt en. Gör det inte det
