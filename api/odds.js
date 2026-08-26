@@ -16,6 +16,7 @@ const ODDS_BASE = "https://api.odds-api.io/v3";
 const FPL_BASE = "https://fantasy.premierleague.com/api";
 const BOOKMAKERS = "Bet365,Unibet";
 const LEAGUE = "england-premier-league";
+const MAX_EVENTS = 20;
 
 // Enkel in-memory-cache. Vercel återanvänder ofta samma instans mellan
 // anrop under en period, så detta räcker för att skydda kvoten. Vill du ha
@@ -80,6 +81,19 @@ function lastName(s) {
 // indexeras, och kravet på entydighet i matchPlayer ser till att den bredare
 // uppslagningen inte kan gissa fel: blir det flera kandidater och förnamnet
 // inte skiljer dem åt hoppas etiketten över.
+// Partiklar i sammansatta namn. De är aldrig det namn någon kallas vid, och
+// skulle bara skapa kollisioner ("de" finns i dussintals namn).
+const NAME_PARTICLES = new Set(["de","da","do","dos","das","del","della","van","von",
+  "der","den","di","du","la","le","el","al","bin","ibn","abu","san","st","y"]);
+
+// Varje led i ett efternamn som kan vara det spelaren kallas vid. Iberiska och
+// brasilianska namn bär två efternamn där det FÖRSTA är det som används —
+// "Yéremy Pino Santos" heter Pino, "Bruno Guimarães Rodriguez Moura" heter
+// Guimarães. lastName() tar sista ordet och missar dem båda.
+function surnameTokens(s) {
+  return norm(s).split(/\s+/).filter(t => t.length >= 3 && !NAME_PARTICLES.has(t));
+}
+
 function nameKeys(s) {
   const ln = lastName(s);
   if (!ln) return [];
@@ -181,9 +195,17 @@ export default async function handler(req, res) {
     // Anthony Patterson i förnamn skulle då fånga etiketter avsedda för en
     // Wilson respektive Anthony i motståndarlaget.
     // {teamId: {namnform: [players...]}}
+    // Indexet är avsiktligt brett: varje led i efternamnet läggs in, eftersom
+    // boken använder ETT av dem och vi inte vet vilket. Precisionen ligger inte
+    // i hur smalt vi indexerar utan i kravet på entydighet i matchPlayer —
+    // flera kandidater som förnamnet inte skiljer åt hoppas över.
     const playersByTeamLast = {};
     for (const p of fplPlayers) {
-      const keys = new Set([...nameKeys(p.second_name), ...nameKeys(p.web_name)]);
+      const keys = new Set();
+      for (const src of [p.second_name, p.web_name]) {
+        for (const k of nameKeys(src)) keys.add(k);
+        for (const t of surnameTokens(src)) for (const k of nameKeys(t)) keys.add(k);
+      }
       for (const k of keys) ((playersByTeamLast[p.team] ??= {})[k] ??= []).push(p);
     }
 
@@ -231,8 +253,30 @@ export default async function handler(req, res) {
     const byTeam = {};
     const byPlayer = {};
 
-    // 3. Odds per match. Begränsa till nästa ~10 för att hålla nere anrop.
-    const requested = upcoming.slice(0, 10);
+    // 3. Vilka matcher hör till NÄSTA omgång?
+    //
+    // Den gamla varianten tog de tio första pending-matcherna. Det antog dels
+    // att listan kom i datumordning, dels att en omgång alltid är tio matcher.
+    // Ingetdera håller: vid en dubbelomgång spelar vissa lag två gånger och vid
+    // en blank spelar färre lag, så snittet blir fel åt båda hållen.
+    //
+    // FPL:s deadline avgör saken. En omgång är precis de matcher som ligger
+    // mellan sin egen deadline och nästa omgångs deadline.
+    const nextEvent = bs.events.find(e => e.is_next);
+    if (!nextEvent) throw new Error("FPL har ingen kommande omgång (is_next saknas)");
+    const after = bs.events.find(e => e.id === nextEvent.id + 1);
+    const from = new Date(nextEvent.deadline_time).getTime();
+    const until = after
+      ? new Date(after.deadline_time).getTime()
+      : from + 14 * 24 * 3600 * 1000;   // säsongens sista omgång har ingen efterföljare
+
+    const inWindow = upcoming
+      .filter(e => { const t = new Date(e.date).getTime(); return t >= from && t < until; })
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Taket skyddar gratiskvoten (100 anrop/h) om fönstret mot förmodan skulle
+    // svälla. En dubbelomgång ligger normalt runt 14-16 matcher.
+    const requested = inWindow.slice(0, MAX_EVENTS);
     const failedEvents = [];
     const calibration = {};          // fplTeamId -> exponent som användes
     const uncalibratedTeams = new Set();
@@ -354,6 +398,8 @@ export default async function handler(req, res) {
       coverage: {
         eventsRequested: requested.length,
         eventsFailed: failedEvents,
+        gameweek: nextEvent.id,
+        eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
