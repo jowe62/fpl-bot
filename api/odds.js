@@ -87,8 +87,16 @@ function nameKeys(s) {
   return tail && tail !== ln ? [ln, tail] : [ln];
 }
 
-async function jget(url) {
-  const r = await fetch(url);
+// FPL svarar 403 på nakna anrop från moln-IP:n. api/fpl.js skickar därför
+// dessa headers; odds.js gjorde det inte och dog sporadiskt med 403 på
+// bootstrap-static. Samma headers, samma skäl.
+const FPL_HEADERS = {
+  "User-Agent": "Mozilla/5.0",
+  Referer: "https://fantasy.premierleague.com/",
+};
+
+async function jget(url, headers) {
+  const r = await fetch(url, headers ? { headers } : undefined);
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url.split("?")[0]}`);
   return r.json();
 }
@@ -139,7 +147,7 @@ export default async function handler(req, res) {
     }
 
     // 1. FPL: lag + spelare för id-matchning.
-    const bs = await jget(`${FPL_BASE}/bootstrap-static/`);
+    const bs = await jget(`${FPL_BASE}/bootstrap-static/`, FPL_HEADERS);
     const fplTeams = bs.teams; // {id, name, short_name}
     const fplPlayers = bs.elements; // {id, web_name, second_name, team, ...}
 
