@@ -39,7 +39,11 @@ syntes inte ens i Vercels function-loggar). Deploy sker automatiskt vid git-push
   - `/odds?eventId=…&bookmakers=Bet365,Unibet` → marknader per match
 - Bookmakers: gratisnivån ger Bet365 + Unibet, med marknaderna
   "Anytime Goalscorer", "Clean Sheet Home/Away", "Player To Score or Assist".
-- Cache: 6h in-memory, hämtar ~10 matcher → skonar gratiskvoten (100 req/h).
+- Cache: 6h in-memory → skonar gratiskvoten (100 req/h).
+- **Matchurval:** en omgång är precis de matcher som ligger mellan sin egen
+  deadline och nästa omgångs deadline. Använd ALDRIG "de N första" igen — det
+  antar både datumordning och att en omgång är tio matcher, vilket är fel åt
+  båda hållen vid dubbel- och blankomgång. Taket `MAX_EVENTS` skyddar kvoten.
 
 **Lagmatchning.** odds-api.io returnerar klubbens officiella namn *med FC/AFC-affix*
 ("Everton FC", "Sunderland AFC", "AFC Bournemouth"); FPL gör aldrig det. `normTeam()`
@@ -47,7 +51,11 @@ tar bort affixet. `TEAM_ALIASES` innehåller numera BARA äkta namnskillnader d�
 använder en kortform som inte går att härleda ("Tottenham Hotspur" → "Spurs").
 Lägg aldrig in FC/AFC-varianter där — regeln sköter dem.
 
-**Spelarmatchning.** Indexeras på både `second_name` och `web_name` (FPL lägger ofta
+**Spelarmatchning.** Indexeras på både `second_name` och `web_name`, och på
+**varje led** i efternamnet (partiklar som de/da/van bortfiltrerade), eftersom
+iberiska och brasilianska namn bär två efternamn där det första används —
+"Yéremy Pino Santos" kallas Pino. Indexet är avsiktligt brett; precisionen
+ligger i kravet på entydighet, inte i hur smalt vi indexerar. Dessutom (FPL lägger ofta
 det namn spelaren kallas i web_name — Igor Thiago heter "Nascimento Rodrigues" i
 second_name). Förnamn indexeras medvetet INTE. Etiketten matchas mot **båda** lagen
 i matchen samtidigt och måste peka ut exakt en spelare; annars hoppas den över.
@@ -129,6 +137,10 @@ tillgängligheten för andra halvan.
 Obs: chip-rådgivarens *tröskelvärden* (`avgTeamFdr3 > 3.3` → "KÖR NU") är
 handplockade utan stöd. De är inte verifierade mot något.
 
+## Template-XI
+`templateXI()` bygger den mest ägda lagliga elvan och startvyn visar hur många av
+dina elva som finns i den. Det är **ägarandel, inget annat** — se öppen tråd 3.
+
 ## Utseende
 Ett tokenobjekt `T` överst i filen håller hela paletten — mörkt granittema,
 varm gråröd sten snarare än blå skiffer, med dova signalfärger. Byt tema där
@@ -157,8 +169,13 @@ FDR-tabellen osynliga när temat byttes. Lägg inte tillbaka några.
   försvarare upp och anfallare ner — Shaw 6 → 2, João Pedro 5 → 9.
 - **`a6f7a28` — deployad och verifierad.** xMins och kaptensrankningen, se
   xP-modellen ovan.
-- **`847f198`…`596eae3` — deployade.** Transferkostnad, startvyn Veckan,
-  chip-status, borttagna flikar och nytt tema. Se avsnitten ovan.
+- **`847f198`…`e71447c` — deployade och verifierade.** Transferkostnad, startvyn
+  Veckan, chip-status, borttagna flikar, granittema, deadline-baserat matchurval,
+  dubbelefternamn och template-överlapp. Se avsnitten ovan.
+- **Ingen dödlopp i kaptensrankningen.** En tidigare anteckning påstod att
+  sorteringen valde godtyckligt mellan spelare på samma xP. Den gör inte det —
+  Haaland låg på 2.746926 och B.Fernandes på 2.724786; det ser bara oavgjort ut
+  för att båda avrundas till 2.7 i visningen.
 
 **Notera:** kaptensvalet ändrades INTE av kalibreringen. En tidigare analys som
 bara räknade på odds-delarna förutsade att det skulle göra det; med hela modellen
@@ -166,24 +183,19 @@ bara räknade på odds-delarna förutsade att det skulle göra det; med hela mod
 du påstår något om rankningen.
 
 ## Öppna trådar / TODO
-1. **Dödlopp i kaptensrankningen.** Två spelare kan ligga på samma xP (Haaland
-   och B.Fernandes låg båda på 2.7 i GW2) och sorteringen väljer då godtyckligt.
-   Startvyn säger ändå "högst i din startelva". Bör visa båda eller brytas på
-   något meningsfullt.
-2. **Kaptensvikt.** `scoreCap` är borttagen och kapten rankas nu på ren xP. Den
-   gamla kommentaren påstod att den straffade lågt xMins hårdare för att gynna
-   nagelfasta startare — det var aldrig implementerat. Om du vill ha en sådan
-   viktning är den obyggd och ett medvetet modellval, inte en bugg.
-3. **Dubbelefternamn.** Boken skriver "Yeremy Pino" och "Bruno Guimaraes" där FPL
-   har `Pino Santos` och `Guimarães Rodriguez Moura`; `lastName()` tar sista ordet
-   och missar. Sex spelare berörda, samtliga ≤3.2% ägda, så nyttan är liten. De
-   syns i `coverage.unmatchedLabels` om någon av dem blir relevant.
-4. `upcoming.slice(0, 10)` antar att de tio första pending-matcherna ≈ nästa omgång.
-   Håller inte vid dubbel- eller blankomgång.
-5. Föreslagna förbättringar (ej byggda), i värdeordning:
-   - Flera-omgångars-planering / solver (störst edge, mest jobb) — som FPL Review/Hub.
-   - Effective ownership / template-vs-differential-märkning (billig, hög nytta).
-6. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
+1. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
+   klart mest arbete: en optimering över budget, formation, fria transfers och
+   avdrag över N omgångar. Inte påbörjad.
+2. **Chip-rådgivarens trösklar.** `avgTeamFdr3 > 3.3` → "KÖR NU" och liknande är
+   handplockade utan stöd. Tillgängligheten är korrekt, men rådet om *när* ett
+   chip ska spelas vilar på gissade siffror. Enda delen av boten som fortfarande
+   uttalar sig med självförtroende utan täckning.
+3. **Äkta effective ownership går inte att bygga** från det publika API:t. Den
+   kräver kaptensandelar och FPL exponerar inga — `bootstrap.elements` har
+   `selected_by_percent` men inget kaptensfält alls. Premium-sajterna samplar
+   tusentals lag. Template-överlappet (se nedan) är den ärliga delmängden; kalla
+   det aldrig EO.
+4. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
