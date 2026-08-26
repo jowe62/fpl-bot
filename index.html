@@ -72,9 +72,10 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 // MODELLENS KÄRNA
 //
 // Teori bakom omskrivningen (belagd mot premium-tjänster):
-//  1. xMins (starttrolighet) är den enskilt viktigaste faktorn. En spelare
-//     som inte startar ger 0 poäng oavsett hur bra han är. Vi skattar den
-//     från starts_per_90 + speltid + skadestatus, inte råa totalminuter.
+//  1. xMins (speltidsandel) är den enskilt viktigaste faktorn. En spelare
+//     som inte spelar ger 0 poäng oavsett hur bra han är. Vi skattar den som
+//     andel spelade minuter, krympt mot 0.5 efter hur många omgångar som
+//     hunnit spelas, plus skadestatus.
 //  2. Underliggande data (xG/xA per 90) förutspår bättre än `form`, som är
 //     brus på kort sikt (FPL Review: senaste 450 min mål ≈ värdelöst).
 //  3. Clean sheet-potential för DEF/MV skattas från lagets expected_goals_
@@ -82,17 +83,28 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 //  4. Odds används om ODDS.enabled — annars xG-proxyn. Aldrig tyst blandning.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// xMins: 0..1 sannolikhet att spelaren spelar en meningsfull mängd nästa GW.
+// Antal spelade omgångar. Sätts när bootstrap laddats. xMins behöver veta hur
+// många chanser en spelare HAFT att spela, annars går andelen inte att räkna.
+const SEASON = { gamesPlayed: 0 };
+
+// xMins: 0..1 förväntad andel av matchens minuter nästa GW.
+//
+// Andelen spelade minuter, krympt mot 0.5 med två pseudo-matcher. Krympningen
+// hanterar tunt underlag utan att platta ut skillnader: efter en omgång får en
+// spelare med hela matchen 0.67, en oanvänd 0.33 och en inbytt halvlek 0.50,
+// och spridningen växer i takt med att underlaget gör det.
+//
+// Den gamla varianten byggde på starts_per_90 och dämpade dessutom allt under
+// 270 minuter med en fast faktor. Det gav EXAKT 0.60 åt varenda startspelare de
+// tre första omgångarna — modellens viktigaste faktor kunde inte skilja Haaland
+// från en rotationsrisk. En glidande krympning har ingen sådan tröskel.
+const XMINS_PRIOR = 0.5, XMINS_PSEUDO_GAMES = 2;
 function xMins(p){
   if(isInjured(p)) return 0;
-  const starts = num(p.starts);
-  const s90 = num(p.starts_per_90);          // starter per 90 spelade min
-  const mins = num(p.minutes);
-  // Bas: hur ofta han startar när han väl är med.
-  let base = s90>0 ? Math.min(s90,1) : (mins>450?0.6:0.3);
-  // Väldigt lite speltid totalt => osäker roll, dämpa.
-  if(mins<270) base *= 0.6;
-  // Osäker (chance_of_playing) skalar direkt.
+  const games = SEASON.gamesPlayed;
+  if(!games) return XMINS_PRIOR;   // före säsongsstart finns inget att gå på
+  const pseudo = XMINS_PSEUDO_GAMES * 90;
+  let base = (num(p.minutes) + pseudo*XMINS_PRIOR) / (games*90 + pseudo);
   if(p.chance_of_playing_next_round!==null && p.chance_of_playing_next_round<100){
     base *= (p.chance_of_playing_next_round/100);
   }
@@ -175,12 +187,13 @@ function estimateXpLong(p,fm){
   return base.xp * fxMult;
 }
 
-// ── Kaptenscoring: xP men straffa lågt xMins hårdare (vill ha nailed startare) ─
-function scoreCap(p,fm){
-  const e = estimateXp(p,fm);
-  const home = nextIsHome(p.team,fm)?0.4:0;
-  return e.xp + home;
-}
+// Ingen separat kaptenscoring. Den gamla la på +0.4 för hemmamatch ovanpå xP,
+// vilket dels räknade hemmaplan två gånger — odds-baserad csProb och
+// anytime-odds prissätter redan hemmafördelen, och xGC-fallbacken justerar
+// för den explicit — dels rankade listan på ett tal den inte visade, så
+// Haaland med 2.4 hamnade under Cunha med 2.1. Kapten rankas på xP, punkt.
+// (Kommentaren påstod dessutom att den straffade lågt xMins hårdare. Det
+// gjorde den aldrig.)
 
 // ── Differentiell: xP men premiera lågt ägande ──────────────────────────────
 function scoreDiff(p,fm){
@@ -234,7 +247,7 @@ function buildYoloPicks(starters, bench, bs, fm, tb, bank, gw) {
 // ── Chip advisor ──────────────────────────────────────────────────────────────
 function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
   const benchXp = bench.reduce((s,p)=>s+estimateXp(p,fm).xp,0);
-  const bestCap = [...starters].filter(p=>p.element_type!==1).sort((a,b)=>scoreCap(b,fm)-scoreCap(a,fm))[0];
+  const bestCap = [...starters].filter(p=>p.element_type!==1).sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0];
   const bestCapXp = bestCap?estimateXp(bestCap,fm).xp:0;
   const avgTeamFdr3 = starters.reduce((s,p)=>s+avgFdr(p.team,fm,3),0)/starters.length;
 
@@ -350,7 +363,7 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw){
   if(q){const{out,inn}=q;const fdr=nextFdr(inn.team,fm);const ix=estimateXp(inn,fm);const ox=estimateXp(out,fm);
     recs.push({type:"quick",label:"Snabb fix",title:`${inn.web_name} in direkt`,out:out.web_name,inn:inn.web_name,
       priceDiff:pdiffStr(inn.now_cost,out.now_cost),
-      reason:`${inn.web_name} (${tb[inn.team]?.short_name}) skattas till ${ix.xp.toFixed(1)} xP nästa omgång mot ${nextOpp(inn.team,fm,tb)} — startchans ${(ix.parts.mins*100).toFixed(0)}%. Ersätter ${out.web_name} (${ox.xp.toFixed(1)} xP, startchans ${(ox.parts.mins*100).toFixed(0)}%).`,
+      reason:`${inn.web_name} (${tb[inn.team]?.short_name}) skattas till ${ix.xp.toFixed(1)} xP nästa omgång mot ${nextOpp(inn.team,fm,tb)} — speltid ${(ix.parts.mins*100).toFixed(0)}%. Ersätter ${out.web_name} (${ox.xp.toFixed(1)} xP, speltid ${(ox.parts.mins*100).toFixed(0)}%).`,
       fixtures:fxStr(inn.team,fm,tb,3),risk:riskFromFdr(fdr),reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp});}
 
   const l=trySwap(scoreLong);
@@ -462,10 +475,10 @@ function YoloTab({starters,bench,bs,fm,tb,bank,gw}){
   return(
     <div>
       <div style={{background:"#1e293b",borderRadius:"12px",padding:"14px",marginBottom:"16px",fontSize:"13px",color:"#94a3b8",lineHeight:"1.6"}}>
-        Spelar på hög potential istället för säkerhet. Hittar spelare med låg ägarandel, hög startchans och bra xP. För din lediga transfer när du vill ta en chans.
+        Spelar på hög potential istället för säkerhet. Hittar spelare med låg ägarandel, hög speltidsandel och bra xP. För din lediga transfer när du vill ta en chans.
       </div>
       <button style={c.btn(false)} onClick={()=>setPicks(buildYoloPicks(starters,bench,bs,fm,tb,bank,gw))}>🎰 Visa mina yolo-picks</button>
-      {picks&&picks.length===0&&<div style={{marginTop:"16px",fontSize:"13px",color:"#64748b"}}>Inga kandidater inom budget med tillräcklig startchans.</div>}
+      {picks&&picks.length===0&&<div style={{marginTop:"16px",fontSize:"13px",color:"#64748b"}}>Inga kandidater inom budget med tillräcklig speltidsandel.</div>}
       {picks&&picks.length>0&&(
         <div style={{marginTop:"16px"}}>
           {picks.map((pick,i)=>{
@@ -576,10 +589,10 @@ function ChipTab({starters,bench,fm,tb,gw,bs}){
 }
 
 function CaptainTab({starters,fm,tb}){
-  const ranked=[...starters].filter(p=>p.element_type!==1).map(p=>({...p,cs:scoreCap(p,fm),_xp:estimateXp(p,fm).xp})).sort((a,b)=>b.cs-a.cs).slice(0,5);
+  const ranked=[...starters].filter(p=>p.element_type!==1).map(p=>({...p,_xp:estimateXp(p,fm).xp})).sort((a,b)=>b._xp-a._xp).slice(0,5);
   return(
     <div>
-      <div style={c.secTitle}>Rankad på xP-modell (startchans, xG/xA, clean sheet, hemmaplan)</div>
+      <div style={c.secTitle}>Rankad på xP-modell (speltidsandel, xG/xA, clean sheet, hemmaplan)</div>
       {ranked.map((p,i)=>{
         const top=i===0;const fdr=nextFdr(p.team,fm);
         return(
@@ -591,7 +604,7 @@ function CaptainTab({starters,fm,tb}){
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:"13px",color:xpColor(p._xp),fontWeight:"600"}}>{p._xp.toFixed(1)} xP</div>
-              <div style={{fontSize:"11px",color:"#34d399"}}>Start {(xMins(p)*100).toFixed(0)}%</div>
+              <div style={{fontSize:"11px",color:"#34d399"}}>Speltid {(xMins(p)*100).toFixed(0)}%</div>
             </div>
             <div style={{background:fdrBg(fdr),color:fdrTx(fdr),borderRadius:"8px",padding:"4px 10px",fontSize:"12px",fontWeight:"500"}}>FDR {fdr}</div>
           </div>
@@ -738,6 +751,7 @@ function App(){
         const [bs,entry]=await Promise.all([fplFetch("/bootstrap-static/"),fplFetch(`/entry/${TEAM_ID}/`)]);
         // Truppen finns bara för en spelad omgång; all planering sker mot nästa.
         // Två skilda begrepp, aldrig samma variabel.
+        SEASON.gamesPlayed = bs.events.filter(e=>e.finished).length;
         const squadGw=entry.current_event;
         if(!squadGw)throw new Error("Laget har ingen spelad omgång ännu (entry.current_event saknas) — inget att planera utifrån.");
         const next=bs.events.find(e=>e.is_next);
@@ -837,7 +851,7 @@ function App(){
       {tab==="prices"&&<PriceTrends starters={starters} bench={bench}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
-      <div style={c.disclaimer}>xP-modell byggd på startchans (xMins), xG/xA per 90, clean sheet-sannolikhet och fixtures. Odds kopplas på via plugin. Alltid ditt eget ansvar att fatta det slutliga beslutet.</div>
+      <div style={c.disclaimer}>xP-modell byggd på speltidsandel (xMins), xG/xA per 90, clean sheet-sannolikhet och fixtures. Odds kopplas på via plugin. Alltid ditt eget ansvar att fatta det slutliga beslutet.</div>
     </div>
   );
 }
