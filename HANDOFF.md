@@ -28,9 +28,8 @@ VIKTIGT: API-filerna MÅSTE ligga i `api/`-mappen och heta exakt `*.js`
 syntes inte ens i Vercels function-loggar). Deploy sker automatiskt vid git-push.
 
 ## Miljövariabel (Vercel → Settings → Environment Variables)
-- `ODDS_API_KEY` = nyckel från odds-api.io.
-  **Bör fortfarande roteras** — nyckeln lästes in i en tidigare chatt. Ligger
-  ENDAST på servern.
+- `ODDS_API_KEY` = nyckel från odds-api.io. Roterad 26 aug 2026; den gamla,
+  som lästes in i en tidigare chatt, är död. Ligger ENDAST på servern.
 - Obs: `vercel env pull` hämtar **development**-miljön som standard, och nyckeln
   ligger på Production. Använd `vercel env pull .env.local --environment=production`.
 
@@ -96,8 +95,46 @@ omgång allt planeras mot (`is_next`). Blanda aldrig ihop dem. Båda kastar fel 
 förutsättningen saknas — ingen fallback.
 
 ## Flikar i boten
-Byten (transferförslag: snabb/långsiktig/differentiell), Yolo-pick, Chips (WC/BB/TC/FH-rådgivare),
-Fixtures (FDR-ticker), Kapten (rankad på xP), Momentum (transfers in/ut), Priser, Skador.
+**Veckan** (default), Kapten, Byten, Fixtures, Chips, Skador — i den ordningen,
+för att det är hur ofta de faktiskt påverkar ett beslut.
+
+`Veckan` är startvyn och svarar på vad som ska göras i omgången, i vanliga
+meningar: kaptensbandet, transfer med rak dom (inklusive "gör ingen transfer"),
+sedan skador, chips kvar och bänkens täckning. Varje block länkar vidare till
+fliken med siffrorna. Principen är att en nybörjare ska kunna läsa vyn på tio
+sekunder och sluta med ett beslut — allt annat är fördjupning.
+
+**Borttagna med flit, återinför dem inte:** Yolo-pick (rankade på lågt ägande
+med en påhittad vikt, och dubblerade Bytens differentiella förslag), Momentum
+(flockbeteende utan koppling till modellen) och Priser (spelar närmast ingen
+roll innan man börjar bygga lagvärde).
+
+## Transferkostnad
+`freeTransfersFor()` härleder fria transfers ur `/entry/{id}/history/` — FPL
+exponerar dem inte som fält. Regler ([källa](https://www.premierleague.com/en/news/2174907)):
+första omgången har obegränsade transfers, sedan en per omgång, oanvända rullar
+till tak fem, och wildcard/free hit förbrukar inte bankade. Varje transfer
+därutöver kostar 4 poäng.
+
+Bytesförslagen visar **nettot**, inte den nya spelarens xP. Långsiktiga förslag
+jämför vinsten över fem omgångar mot engångsavdraget. Går inget alternativ plus
+säger boten rakt ut att rätt drag är att inte göra något.
+
+## Chips
+`chipAvailability()` läser fönstren ur `bootstrap.chips` (varje chip finns en
+gång per säsongshalva) och använda chips ur `/entry/{id}/history/`. Använda
+markeras SLUT i stället för att få en rekommendation. GW20 återställer
+tillgängligheten för andra halvan.
+
+Obs: chip-rådgivarens *tröskelvärden* (`avgTeamFdr3 > 3.3` → "KÖR NU") är
+handplockade utan stöd. De är inte verifierade mot något.
+
+## Utseende
+Ett tokenobjekt `T` överst i filen håller hela paletten — mörkt granittema,
+varm gråröd sten snarare än blå skiffer, med dova signalfärger. Byt tema där
+och i `POS_TINT`, `fdrBg`, `fdrTx` och `xpColor`, inte inline. Filen har haft
+82 hårdkodade färger utspridda i JSX; en av dem gjorde spelarnamnen i
+FDR-tabellen osynliga när temat byttes. Lägg inte tillbaka några.
 
 ## Nyligen gjort (aug 2026)
 - **`98f73dd` — deployad och verifierad i produktion.** Två buggar:
@@ -118,9 +155,10 @@ Fixtures (FDR-ticker), Kapten (rankad på xP), Momentum (transfers in/ut), Prise
   0.000000 % avvikelse, alpha 1.53–1.93, inga okalibrerade lag. Haaland 0.619 →
   0.465 (odds 1.61 → 2.15). Effekt: 8 av 11 startspelare byter plats i rankningen,
   försvarare upp och anfallare ner — Shaw 6 → 2, João Pedro 5 → 9.
-- **`a6f7a28` — committad, verifiera efter deploy.** xMins och kaptensrankningen,
-  se xP-modellen ovan. → Kontrollera att Kapten-listan är monotont sorterad på det
-  visade xP-talet och att speltidsandelen skiljer sig mellan spelare.
+- **`a6f7a28` — deployad och verifierad.** xMins och kaptensrankningen, se
+  xP-modellen ovan.
+- **`847f198`…`596eae3` — deployade.** Transferkostnad, startvyn Veckan,
+  chip-status, borttagna flikar och nytt tema. Se avsnitten ovan.
 
 **Notera:** kaptensvalet ändrades INTE av kalibreringen. En tidigare analys som
 bara räknade på odds-delarna förutsade att det skulle göra det; med hela modellen
@@ -128,20 +166,24 @@ bara räknade på odds-delarna förutsade att det skulle göra det; med hela mod
 du påstår något om rankningen.
 
 ## Öppna trådar / TODO
-1. **Kaptensvikt.** `scoreCap` är borttagen och kapten rankas nu på ren xP. Den
+1. **Dödlopp i kaptensrankningen.** Två spelare kan ligga på samma xP (Haaland
+   och B.Fernandes låg båda på 2.7 i GW2) och sorteringen väljer då godtyckligt.
+   Startvyn säger ändå "högst i din startelva". Bör visa båda eller brytas på
+   något meningsfullt.
+2. **Kaptensvikt.** `scoreCap` är borttagen och kapten rankas nu på ren xP. Den
    gamla kommentaren påstod att den straffade lågt xMins hårdare för att gynna
    nagelfasta startare — det var aldrig implementerat. Om du vill ha en sådan
    viktning är den obyggd och ett medvetet modellval, inte en bugg.
-2. **Dubbelefternamn.** Boken skriver "Yeremy Pino" och "Bruno Guimaraes" där FPL
+3. **Dubbelefternamn.** Boken skriver "Yeremy Pino" och "Bruno Guimaraes" där FPL
    har `Pino Santos` och `Guimarães Rodriguez Moura`; `lastName()` tar sista ordet
    och missar. Sex spelare berörda, samtliga ≤3.2% ägda, så nyttan är liten. De
    syns i `coverage.unmatchedLabels` om någon av dem blir relevant.
-3. `upcoming.slice(0, 10)` antar att de tio första pending-matcherna ≈ nästa omgång.
+4. `upcoming.slice(0, 10)` antar att de tio första pending-matcherna ≈ nästa omgång.
    Håller inte vid dubbel- eller blankomgång.
-4. Föreslagna förbättringar (ej byggda), i värdeordning:
+5. Föreslagna förbättringar (ej byggda), i värdeordning:
    - Flera-omgångars-planering / solver (störst edge, mest jobb) — som FPL Review/Hub.
    - Effective ownership / template-vs-differential-märkning (billig, hög nytta).
-5. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
+6. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
