@@ -1,7 +1,7 @@
 <style>
-  html,body{margin:0;padding:0;background:#FAFAF8;-webkit-font-smoothing:antialiased;}
+  html,body{margin:0;padding:0;background:#1A1A18;-webkit-font-smoothing:antialiased;}
   *{box-sizing:border-box;}
-  button:focus-visible{outline:1px solid #1A1A1A;outline-offset:2px;}
+  button:focus-visible{outline:1px solid #EDEDE8;outline-offset:2px;}
 </style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -14,17 +14,20 @@ const TEAM_ID = 1036486;
 // ── Designtokens ────────────────────────────────────────────────────────────
 // Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
 // och signalfärger som bara används när något faktiskt kräver uppmärksamhet.
+// Granit: varm gragrona-svart sten, inte bla skiffer. Ingen ton ar helt
+// neutral och ingen ar mattad — signalfargerna ar dovade sa de laser som
+// mineral i sten, inte som lysdioder.
 const T = {
-  bg:"#FAFAF8", card:"#FFFFFF", line:"#E5E4E0",
-  ink:"#1A1A1A", mut:"#6B6B6B",
-  good:"#1F6F43", warn:"#8A6100", bad:"#A8331F", warnBg:"#FBF6EA",
+  bg:"#1A1A18", card:"#222220", line:"#34342F",
+  ink:"#EDEDE8", mut:"#8E8E85",
+  good:"#87B795", warn:"#CFAE6B", bad:"#CE8B79", warnBg:"#2A2620",
 };
 // Positionsmärken: dova toner ur samma varma familj, inte färgklickar.
 const POS_TINT = {
-  1:{background:"#F0EBE1",color:"#6B5B3E"},
-  2:{background:"#E9EDF1",color:"#3D5872"},
-  3:{background:"#E7EDE8",color:"#3E5F49"},
-  4:{background:"#F3EAE7",color:"#7A4237"},
+  1:{background:"#2E2A21",color:"#C7B58D"},
+  2:{background:"#232A31",color:"#9DB4CA"},
+  3:{background:"#232B25",color:"#9ABAA3"},
+  4:{background:"#2E2422",color:"#CD9E91"},
 };
 const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
 const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
@@ -222,9 +225,30 @@ function scoreDiff(p,fm){
   return estimateXp(p,fm).xp + (15-own)*0.15;
 }
 
-function fdrBg(d){return d<=2?"#E4EDE6":d===3?"#F3EFE4":d===4?"#F5E7E3":"#F0DEDA";}
-function fdrTx(d){return d<=2?"#1F6F43":d===3?"#8A6100":d<=4?"#A8331F":"#8C2415";}
-function xpColor(xp){return xp>=6?"#1F6F43":xp>=4?"#8A6100":xp>=2?"#6B6B6B":"#A8331F";}
+function fdrBg(d){return d<=2?"#232F26":d===3?"#2F2B21":d===4?"#302422":"#2B1E1C";}
+function fdrTx(d){return d<=2?"#87B795":d===3?"#CFAE6B":d<=4?"#CE8B79":"#C0705C";}
+function xpColor(xp){return xp>=6?"#87B795":xp>=4?"#CFAE6B":xp>=2?"#8E8E85":"#CE8B79";}
+
+// ── Chip-status ───────────────────────────────────────────────────────────────
+// Vilka chips du faktiskt HAR kvar. bootstrap.chips ger fönstren — varje chip
+// finns en gång per säsongshalva — och /entry/{id}/history/ ger vilka du använt
+// och när. Utan detta kunde boten råda dig att spela ett wildcard du redan
+// bränt, vilket den gjorde fram tills nu.
+const CHIP_API_NAME = { wc:"wildcard", bb:"bboost", tc:"3xc", fh:"freehit" };
+function chipAvailability(bs, history, gw){
+  const used = history.chips || [];
+  const out = {};
+  for(const [id,apiName] of Object.entries(CHIP_API_NAME)){
+    // Fönstret som omfattar den omgång vi planerar för.
+    const win = (bs.chips||[]).find(c=>c.name===apiName && gw>=c.start_event && gw<=c.stop_event);
+    if(!win){ out[id]={available:false,reason:"utanför chipfönstret",usedAt:null}; continue; }
+    const spent = used.find(u=>u.name===apiName && u.event>=win.start_event && u.event<=win.stop_event);
+    out[id] = spent
+      ? {available:false,reason:`använt i GW${spent.event}`,usedAt:spent.event,window:win}
+      : {available:true,reason:`tillgängligt GW${win.start_event}–${win.stop_event}`,usedAt:null,window:win};
+  }
+  return out;
+}
 
 // ── Chip advisor ──────────────────────────────────────────────────────────────
 function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
@@ -512,7 +536,7 @@ function TransferCard({rec}){
   );
 }
 
-function ChipTab({starters,bench,fm,tb,gw,bs}){
+function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail}){
   const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
   const [expanded,setExpanded]=useState("wc");
   return(
@@ -520,14 +544,22 @@ function ChipTab({starters,bench,fm,tb,gw,bs}){
       <div style={c.secTitle}>Klicka på ett chip för detaljerad analys</div>
       {chips.map(chip=>{
         const open=expanded===chip.id;
+        const av=chipAvail[chip.id]||{available:true,reason:""};
         return(
           <div key={chip.id} style={{background:T.card,borderRadius:"14px",overflow:"hidden",marginBottom:"10px",border:`.5px solid ${open?T.ink:T.line}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"16px",cursor:"pointer"}} onClick={()=>setExpanded(open?null:chip.id)}>
+            <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"16px",cursor:"pointer",opacity:av.available?1:.5}} onClick={()=>setExpanded(open?null:chip.id)}>
               <div style={{fontSize:"24px",width:"36px",textAlign:"center"}}>{chip.icon}</div>
-              <div style={{flex:1}}><div style={{fontWeight:"600",fontSize:"15px",color:T.ink}}>{chip.name}</div></div>
-              <div style={{background:chip.verdictColor===T.good?T.good:chip.verdictColor===T.warn?T.warnBg:T.card,borderRadius:"20px",padding:"5px 14px"}}>
-                <span style={{fontSize:"12px",fontWeight:"700",color:chip.verdictColor,letterSpacing:".05em"}}>{chip.verdict}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:"600",fontSize:"15px",color:T.ink}}>{chip.name}</div>
+                <div style={{fontSize:"11px",color:T.mut,marginTop:"2px"}}>{av.reason}</div>
               </div>
+              {av.available
+                ? <div style={{background:chip.verdictColor===T.good?T.good:chip.verdictColor===T.warn?T.warnBg:T.card,borderRadius:"20px",padding:"5px 14px"}}>
+                    <span style={{fontSize:"12px",fontWeight:"700",color:chip.verdictColor,letterSpacing:".05em"}}>{chip.verdict}</span>
+                  </div>
+                : <div style={{borderRadius:"20px",padding:"5px 14px",border:`1px solid ${T.line}`}}>
+                    <span style={{fontSize:"12px",fontWeight:"600",color:T.mut,letterSpacing:".05em"}}>SLUT</span>
+                  </div>}
               <span style={{color:T.mut,fontSize:"14px"}}>{open?"▲":"▼"}</span>
             </div>
             {open&&(
@@ -551,7 +583,7 @@ function ChipTab({starters,bench,fm,tb,gw,bs}){
                 {chip.cons.length>0&&(
                   <div style={{marginTop:"10px"}}>
                     <div style={{fontSize:"11px",color:T.bad,fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✗ Argument för att avvakta</div>
-                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#FAEFEC",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.bad,flexShrink:0}}>–</span>{con}</div>))}
+                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#2E211E",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.bad,flexShrink:0}}>–</span>{con}</div>))}
                   </div>
                 )}
                 {chip.pros.length===0&&chip.cons.length===0&&<div style={{padding:"12px 0",fontSize:"13px",color:T.mut}}>Inte tillräckligt med data denna omgång.</div>}
@@ -568,7 +600,7 @@ function ChipTab({starters,bench,fm,tb,gw,bs}){
 // ── Veckan: ett svar pa "vad gor jag den har omgangen?" ────────────────────
 // Allt annat i boten ar fordjupning. Den har vyn ska ga att lasa pa tio
 // sekunder och sluta med ett beslut, inte med atta flikar att sortera sjalv.
-function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,setTab}){
+function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab}){
   const cap = useMemo(()=>[...starters].filter(p=>p.element_type!==1)
     .sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0],[starters,fm]);
   const recs = useMemo(()=>buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers),
@@ -582,6 +614,7 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,setTab}){
   const benchOk = bench.filter(p=>!isInjured(p)&&xMins(p)>=0.5).length;
   const benchDead = bench.filter(p=>isInjured(p)).length;
 
+  const chipsLeft = Object.entries(chipAvail).filter(([,a])=>a.available).length;
   const capFx = (fm[cap?.team]||[])[0];
   const capXp = cap?estimateXp(cap,fm).xp:0;
 
@@ -651,6 +684,12 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,setTab}){
         )}
         {/* Bänken avgör om auto-bytena räddar dig när en startspelare uteblir,
             så den ska stå här varje vecka — inte bara när elvan redan brinner. */}
+        <div style={c.weekFlag()}>
+          <span style={c.weekDot(chipsLeft>0?T.line:T.warn)}/>
+          <span style={c.weekMuted}>{chipsLeft>0
+            ? <>Du har {chipsLeft} av 4 chips kvar den här säsongshalvan.</>
+            : <>Du har inga chips kvar den här säsongshalvan.</>}</span>
+        </div>
         <div style={c.weekFlag()}>
           <span style={c.weekDot(benchOk>=2?T.good:benchOk===1?T.warn:T.bad)}/>
           <span>{benchOk===0
@@ -783,6 +822,7 @@ function App(){
         const gw=next.id;
         const [picks,rawFx,history]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),fplFetch("/fixtures/"),fplFetch(`/entry/${TEAM_ID}/history/`)]);
         const freeTransfers=freeTransfersFor(history,gw);
+        const chipAvail=chipAvailability(bs,history,gw);
         const fm={};
         for(const f of rawFx){
           if(!f.event||f.event<gw)continue;
@@ -804,7 +844,7 @@ function App(){
           catch(e){ setOddsStatus("error"); }
         }
 
-        setFplData({bs,entry,fm,tb,gw,squadGw,bank,starters,bench,freeTransfers});
+        setFplData({bs,entry,fm,tb,gw,squadGw,bank,starters,bench,freeTransfers,chipAvail});
       }catch(e){setError(e.message);}
       finally{setLoading(false);}
     })();
@@ -821,7 +861,7 @@ function App(){
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -862,7 +902,7 @@ function App(){
         {TABS.map(t=><button key={t.id} style={c.tab(tab===t.id)} onClick={()=>setTab(t.id)}>{t.label}</button>)}
       </div>
 
-      {tab==="week"&&<WeekTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw} freeTransfers={freeTransfers} setTab={setTab}/>}
+      {tab==="week"&&<WeekTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw} freeTransfers={freeTransfers} chipAvail={chipAvail} setTab={setTab}/>}
       {tab==="transfers"&&(
         <div>
           <div style={c.ftBox}>
@@ -882,7 +922,7 @@ function App(){
           {!results&&<div style={{fontSize:"13px",color:T.mut,textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
         </div>
       )}
-      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs}/>}
+      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
       {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
