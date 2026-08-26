@@ -30,6 +30,7 @@ const ODDS = {
   enabled: true,
   byTeam: {},
   byPlayer: {},
+  coverage: null,
   async fetchOdds() {
     const r = await fetch(ODDS_PROXY);
     if (!r.ok) throw new Error("Odds-proxy HTTP " + r.status);
@@ -41,6 +42,7 @@ const ODDS = {
     for (const k of Object.keys(d.byTeam || {})) this.byTeam[+k] = d.byTeam[k];
     this.byPlayer = {};
     for (const k of Object.keys(d.byPlayer || {})) this.byPlayer[+k] = d.byPlayer[k];
+    this.coverage = d.coverage || null;
     // Tomt svar = ingen matchtäckning just nu; behandla som "ej tillgängligt"
     // istället för att låtsas att odds-modellen är aktiv utan data.
     if (Object.keys(this.byPlayer).length === 0 && Object.keys(this.byTeam).length === 0) {
@@ -378,6 +380,7 @@ const c={
   statVal:{fontSize:"18px",fontWeight:"600",color:"white"},
   statLbl:{fontSize:"11px",color:"#a5b4fc"},
   oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",padding:"5px 10px",borderRadius:"8px",marginTop:"12px",background:on?"#052e16":"#1c1917",color:on?"#4ade80":"#a8a29e",border:`.5px solid ${on?"#166534":"#44403c"}`}),
+  oddsWarn:{fontSize:"10px",color:"#fbbf24",marginTop:"6px",lineHeight:1.4},
   tabs:{display:"flex",borderBottom:".5px solid #334155",marginBottom:"16px",overflowX:"auto"},
   tab:(a)=>({flexShrink:0,padding:"10px 12px",border:"none",background:"none",cursor:"pointer",fontSize:"13px",color:a?"#a78bfa":"#6b7280",borderBottom:`2px solid ${a?"#7c3aed":"transparent"}`,fontFamily:"system-ui"}),
   squad:{background:"#1e293b",borderRadius:"14px",padding:"14px",marginBottom:"16px"},
@@ -733,8 +736,14 @@ function App(){
     (async()=>{
       try{
         const [bs,entry]=await Promise.all([fplFetch("/bootstrap-static/"),fplFetch(`/entry/${TEAM_ID}/`)]);
-        const gw=entry.current_event||bs.events.find(e=>e.is_current)?.id||bs.events.find(e=>e.is_next)?.id;
-        const [picks,rawFx]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${gw}/picks/`),fplFetch("/fixtures/")]);
+        // Truppen finns bara för en spelad omgång; all planering sker mot nästa.
+        // Två skilda begrepp, aldrig samma variabel.
+        const squadGw=entry.current_event;
+        if(!squadGw)throw new Error("Laget har ingen spelad omgång ännu (entry.current_event saknas) — inget att planera utifrån.");
+        const next=bs.events.find(e=>e.is_next);
+        if(!next)throw new Error("FPL har ingen kommande omgång (is_next saknas) — går inte att ge råd för nästa GW.");
+        const gw=next.id;
+        const [picks,rawFx]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),fplFetch("/fixtures/")]);
         const fm={};
         for(const f of rawFx){
           if(!f.event||f.event<gw)continue;
@@ -756,7 +765,7 @@ function App(){
           catch(e){ setOddsStatus("error"); }
         }
 
-        setFplData({bs,entry,fm,tb,gw,bank,starters,bench});
+        setFplData({bs,entry,fm,tb,gw,squadGw,bank,starters,bench});
       }catch(e){setError(e.message);}
       finally{setLoading(false);}
     })();
@@ -773,9 +782,17 @@ function App(){
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:"#64748b",fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
-  const{entry,gw,bank,starters,bench,fm,tb,bs}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs}=fplData;
 
-  const oddsLabel = oddsStatus==="on"?"Odds-modell aktiv":oddsStatus==="error"?"Odds ej tillgängligt — kör på xG-data":"xG-modell (odds ej påkopplat)";
+  // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
+  // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
+  // omgången i själva verket körs på xG-proxyn.
+  const teamsThisGw = Object.keys(fm).map(Number).filter(tid=>fm[tid][0]?.gw===gw);
+  const teamsNoOdds = teamsThisGw.filter(tid=>!ODDS.byTeam[tid]);
+  const fullCover = oddsStatus==="on" && teamsNoOdds.length===0;
+  const oddsLabel = oddsStatus==="on"
+    ? `Odds-modell aktiv · ${teamsThisGw.length-teamsNoOdds.length}/${teamsThisGw.length} lag`
+    : oddsStatus==="error"?"Odds ej tillgängligt — kör på xG-data":"xG-modell (odds ej påkopplat)";
 
   return(
     <div style={c.root}>
@@ -787,11 +804,15 @@ function App(){
           <div style={c.stat}><div style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
           <div style={c.stat}><div style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
         </div>
-        <div style={c.oddsBadge(oddsStatus==="on")}>{oddsStatus==="on"?"●":"○"} {oddsLabel}</div>
+        <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
+        {oddsStatus==="on" && teamsNoOdds.length>0 &&
+          <div style={c.oddsWarn}>Utan odds, körs på xG: {teamsNoOdds.map(t=>tb[t]?.short_name).join(", ")}</div>}
+        {ODDS.coverage?.unmappedTeams?.length>0 &&
+          <div style={c.oddsWarn}>Lagnamn proxyn inte kunde mappa: {ODDS.coverage.unmappedTeams.join(", ")}</div>}
       </div>
 
       <div style={c.squad}>
-        <div style={c.sLbl}>Startspelare</div>
+        <div style={c.sLbl}>Startspelare (ditt lag i GW{squadGw})</div>
         <div>{starters.map(p=><PlayerChip key={p.id} p={p} bench={false} fm={fm}/>)}</div>
         <div style={c.bLbl}>Bänk</div>
         <div>{bench.map(p=><PlayerChip key={p.id} p={p} bench={true} fm={fm}/>)}</div>

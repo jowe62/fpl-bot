@@ -1,0 +1,8 @@
+# Hemligheter — ODDS_API_KEY hör hemma i Vercel, aldrig i repot.
+.env
+.env.local
+.env*.local
+.vercel
+
+# macOS
+.DS_Store

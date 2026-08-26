@@ -6,10 +6,11 @@ Standing instructions for this repo. Read before every session.
 
 A personal **FPL (Fantasy Premier League) bot** — a free tool for one user that
 aims to match what premium FPL sites offer and give weekly optimal-play advice.
-Stack: static frontend (`fpl-bot.html`) + Vercel serverless functions in `/api`.
-Two odds APIs are wired in. The core is an **xP (expected points) model** built on
-start probability (xMins), xG/xA per 90, clean-sheet probability, and fixtures,
-with real bookmaker odds layered on via `/api/odds`.
+Stack: a single-file frontend (`index.html`, React via Babel-standalone, no build
+step) + Vercel serverless functions in `/api`. Two odds APIs are wired in. The core
+is an **xP (expected points) model** built on start probability (xMins), xG/xA per
+90, clean-sheet probability, and fixtures, with real bookmaker odds layered on via
+`/api/odds`.
 
 The user must be able to trust this bot. A feature that claims to do something
 must provably do it. "Looks like it works" is not evidence.
@@ -38,7 +39,6 @@ This is the most important rule in this file.
 - **Throw errors / fail fast.** Surface broken preconditions loudly.
 - **No backups.** Trust the primary mechanism.
 - **Separation of concerns.** One function, one responsibility.
-- **Let TypeScript catch errors** rather than piling on runtime checks.
 
 ## Development methodology
 
