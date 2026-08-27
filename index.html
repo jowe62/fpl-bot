@@ -30,8 +30,10 @@ const T = {
   line:"#1E242D", lineStrong:"#2A313C",
   // Text
   ink:"#F2F5F8", mut:"#A7B0BD", dim:"#6C7684", disabled:"#4E5765",
-  // Varumärke — lime = åtgärd, eget lag, primär serie
-  lime:"#C8FF2E", limeDeep:"#A8DC10", limeSoft:"#DBFF6B",
+  // Varumärke — lime = åtgärd, eget lag, primär serie.
+  // De tre tonerna är interaktionslägen, inte fria nyanser: hover är LJUSARE
+  // (300) och press MÖRKARE (700) än vilotillståndet (500).
+  brand:"#C8FF2E", brandHover:"#DBFF6B", brandPress:"#A8DC10",
   // Semantik — riktning, aldrig dekoration
   good:"#24D07A", bad:"#FF4D5E", warn:"#FFAE33", info:"#2ED8FF", neutral:"#6C7684",
   alt:"#FF2E7E",
@@ -350,7 +352,7 @@ function scoreDiff(p,fm){
 
 function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
 function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
-function xpColor(xp){return xp>=6?T.good:xp>=4?T.lime:xp>=2?T.mut:T.dim;}
+function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 
 // ── Template-XI ───────────────────────────────────────────────────────────────
 // Den elva som flest managers faktiskt har. Ager du samma spelare som alla
@@ -587,7 +589,7 @@ const c={
   oddsWarn:{fontSize:"11px",color:T.warn,marginTop:"5px",lineHeight:1.5},
 
   tabs:{display:"flex",gap:`${SP[6]}px`,borderBottom:`1px solid ${T.lineStrong}`,marginBottom:`${SP[6]}px`,overflowX:"auto"},
-  tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.lime:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
+  tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.brand:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
 
   squad:{marginBottom:"28px"},
   sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
@@ -595,19 +597,19 @@ const c={
   chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:`${SP[2]}px`,background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,padding:`${SP[2]}px ${SP[3]}px`,margin:`0 ${SP[2]}px ${SP[2]}px 0`,fontSize:"13.5px",color:T.ink,opacity:bench?.55:1}),
   pos:(t)=>({fontSize:"9px",fontWeight:"600",letterSpacing:".04em",padding:"2px 4px",borderRadius:"3px",...POS_TINT[t]}),
 
-  btn:(d)=>({width:"100%",padding:"13px",background:d?T.card:T.lime,color:d?T.disabled:"#07090C",border:"none",borderRadius:`${R.ctrl}px`,fontSize:"15px",fontWeight:700,cursor:d?"not-allowed":"pointer",fontFamily:"inherit"}),
+  btn:(d)=>({width:"100%",padding:"13px",background:d?T.card:T.brand,color:d?T.disabled:"#07090C",border:"none",borderRadius:`${R.ctrl}px`,fontSize:"15px",fontWeight:700,cursor:d?"not-allowed":"pointer",fontFamily:"inherit"}),
   secTitle:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[4]}px`},
 
   // ── Veckan ──────────────────────────────────────────────────────────────
   weekBlock:{marginBottom:"30px"},
-  weekKicker:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.lime,marginBottom:`${SP[2]}px`},
+  weekKicker:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.brand,marginBottom:`${SP[2]}px`},
   weekLead:{fontSize:"38px",lineHeight:"44px",fontWeight:800,color:T.ink,letterSpacing:"-.03em"},
   weekSub:{fontSize:"15px",lineHeight:"25px",color:T.mut,marginTop:`${SP[3]}px`},
   weekRule:{border:"none",borderTop:`1px solid ${T.line}`,margin:"30px 0"},
   weekFlag:(kind)=>({display:"flex",gap:"9px",alignItems:"flex-start",fontSize:"14px",lineHeight:1.6,color:T.ink,marginBottom:"9px"}),
   weekDot:(col)=>({width:"6px",height:"6px",borderRadius:"50%",background:col,marginTop:"7px",flexShrink:0}),
   weekMuted:{color:T.mut},
-  weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13.5px",fontWeight:600,color:T.lime,textDecoration:"none",borderBottom:`1px solid ${T.lime}`,paddingBottom:"1px",cursor:"pointer"},
+  weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13.5px",fontWeight:600,color:T.brand,textDecoration:"none",borderBottom:`1px solid ${T.brand}`,paddingBottom:"1px",cursor:"pointer"},
 
   card:(t)=>({background:T.card,borderRadius:`${R.card}px`,padding:`${SP[5]}px`,marginBottom:`${SP[3]}px`,border:`1px solid ${T.line}`}),
   cardHdr:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"6px",flexWrap:"wrap"},
@@ -972,6 +974,18 @@ function App(){
   const [results,setResults]=useState(null);
   const [tab,setTab]=useState("week");
   const [oddsStatus,setOddsStatus]=useState("off");
+
+  // Sidan ligger i en iframe med fast hojd pa wennerqvist.design. I stallet
+  // for att gissa ett tal rapporterar boten sin egen hojd till foraldern.
+  useEffect(()=>{
+    if(window.parent===window) return;
+    const post=()=>window.parent.postMessage(
+      {type:"gafferos:height", height:document.documentElement.scrollHeight}, "*");
+    post();
+    const ro=new ResizeObserver(post);
+    ro.observe(document.documentElement);
+    return ()=>ro.disconnect();
+  });
 
   useEffect(()=>{
     (async()=>{
