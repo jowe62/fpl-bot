@@ -1,7 +1,13 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  html,body{margin:0;padding:0;background:#1A1A18;-webkit-font-smoothing:antialiased;}
+  html,body{margin:0;padding:0;background:#07090C;-webkit-font-smoothing:antialiased;}
   *{box-sizing:border-box;}
-  button:focus-visible{outline:1px solid #EDEDE8;outline-offset:2px;}
+  /* Varje siffra sätts med tabulära figurer så kolumner ligger stilla och en
+     ändrad ställning aldrig får raden att hoppa. GafferOS §02. */
+  .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
+  button:focus-visible{outline:2px solid #C8FF2E;outline-offset:2px;}
 </style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -14,20 +20,44 @@ const TEAM_ID = 1036486;
 // ── Designtokens ────────────────────────────────────────────────────────────
 // Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
 // och signalfärger som bara används när något faktiskt kräver uppmärksamhet.
-// Granit: varm gragrona-svart sten, inte bla skiffer. Ingen ton ar helt
-// neutral och ingen ar mattad — signalfargerna ar dovade sa de laser som
-// mineral i sten, inte som lysdioder.
+// GafferOS designsystem v1.4. Nära svart canvas med lagrade ytor. Lime är
+// ENDA varumärkesaccenten och reserveras för primär åtgärd, aktivt läge och
+// användarens eget lag. Grönt och rött används bara för verklig numerisk
+// riktning — aldrig som dekoration.
 const T = {
-  bg:"#1A1A18", card:"#222220", line:"#34342F",
-  ink:"#EDEDE8", mut:"#8E8E85",
-  good:"#87B795", warn:"#CFAE6B", bad:"#CE8B79", warnBg:"#2A2620",
+  // Canvas & ytor — elevation genom yta, inte skugga
+  bg:"#07090C", surface:"#0E1116", card:"#161A21", raised:"#161A21", overlay:"#1E242D",
+  line:"#1E242D", lineStrong:"#2A313C",
+  // Text
+  ink:"#F2F5F8", mut:"#A7B0BD", dim:"#6C7684", disabled:"#4E5765",
+  // Varumärke — lime = åtgärd, eget lag, primär serie
+  lime:"#C8FF2E", limeDeep:"#A8DC10", limeSoft:"#DBFF6B",
+  // Semantik — riktning, aldrig dekoration
+  good:"#24D07A", bad:"#FF4D5E", warn:"#FFAE33", info:"#2ED8FF", neutral:"#6C7684",
+  alt:"#FF2E7E",
+  warnBg:"rgba(255,174,51,.12)",
 };
+
+// Fixtursvårighet 1–5. Trean stannar neutralt grå så en rad medelmatcher
+// läser som visuell tystnad — GafferOS §01.
+const FDR_RAMP = {
+  1:{bg:"rgba(36,208,122,.18)", fg:"#24D07A"},
+  2:{bg:"rgba(36,208,122,.10)", fg:"#5FD99B"},
+  3:{bg:"rgba(108,118,132,.14)", fg:"#A7B0BD"},
+  4:{bg:"rgba(255,174,51,.14)",  fg:"#FFAE33"},
+  5:{bg:"rgba(255,77,94,.16)",   fg:"#FF4D5E"},
+};
+
+// 4px-grid. Innanför datatäta ytor 8–16, mellan ytor 20–32, mellan
+// sidsektioner 64. Radius hålls stram: 4 kontroller, 8 kort, 12 modal.
+const SP = {1:4,2:8,3:12,4:16,5:24,6:32,8:48,10:64};
+const R = {ctrl:4, card:8, modal:12, pill:999};
 // Positionsmärken: dova toner ur samma varma familj, inte färgklickar.
 const POS_TINT = {
-  1:{background:"#2E2A21",color:"#C7B58D"},
-  2:{background:"#232A31",color:"#9DB4CA"},
-  3:{background:"#232B25",color:"#9ABAA3"},
-  4:{background:"#2E2422",color:"#CD9E91"},
+  1:{background:"rgba(167,176,189,.12)",color:"#A7B0BD"},
+  2:{background:"rgba(46,216,255,.12)", color:"#2ED8FF"},
+  3:{background:"rgba(200,255,46,.12)", color:"#C8FF2E"},
+  4:{background:"rgba(255,46,126,.12)", color:"#FF2E7E"},
 };
 const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
 const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
@@ -318,9 +348,9 @@ function scoreDiff(p,fm){
   return estimateXp(p,fm).xp + (15-own)*0.15;
 }
 
-function fdrBg(d){return d<=2?"#232F26":d===3?"#2F2B21":d===4?"#302422":"#2B1E1C";}
-function fdrTx(d){return d<=2?"#87B795":d===3?"#CFAE6B":d<=4?"#CE8B79":"#C0705C";}
-function xpColor(xp){return xp>=6?"#87B795":xp>=4?"#CFAE6B":xp>=2?"#8E8E85":"#CE8B79";}
+function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
+function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
+function xpColor(xp){return xp>=6?T.good:xp>=4?T.lime:xp>=2?T.mut:T.dim;}
 
 // ── Template-XI ───────────────────────────────────────────────────────────────
 // Den elva som flest managers faktiskt har. Ager du samma spelare som alla
@@ -543,42 +573,43 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const c={
-  root:{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,background:T.bg,maxWidth:"640px",margin:"0 auto",padding:"28px 20px 40px",minHeight:"100vh"},
+  // Archivo bär röst och gränssnitt, IBM Plex Mono varje siffra. GafferOS §02.
+  root:{fontFamily:'"Archivo",system-ui,sans-serif',color:T.ink,background:T.bg,maxWidth:"1440px",margin:"0 auto",padding:`${SP[5]}px ${SP[5]}px ${SP[10]}px`,minHeight:"100vh"},
 
   hdr:{marginBottom:"28px",paddingBottom:"20px",borderBottom:`1px solid ${T.line}`},
-  hdrTitle:{fontSize:"15px",fontWeight:"500",color:T.ink,letterSpacing:"-.01em"},
-  hdrSub:{fontSize:"13px",color:T.mut,marginTop:"2px"},
+  hdrTitle:{fontSize:"21px",lineHeight:"28px",fontWeight:800,color:T.ink,letterSpacing:"-.01em"},
+  hdrSub:{fontSize:"15px",lineHeight:"25px",color:T.mut,marginTop:"2px"},
   stats:{display:"flex",gap:"24px",marginTop:"18px",flexWrap:"wrap"},
   stat:{},
-  statVal:{fontSize:"20px",fontWeight:"400",color:T.ink,letterSpacing:"-.02em"},
-  statLbl:{fontSize:"11px",color:T.mut,marginTop:"1px"},
+  statVal:{fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",fontSize:"40px",lineHeight:"44px",fontWeight:700,color:T.ink,letterSpacing:"-.02em"},
+  statLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginTop:"2px"},
   oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",marginTop:"16px",color:on?T.good:T.mut}),
   oddsWarn:{fontSize:"11px",color:T.warn,marginTop:"5px",lineHeight:1.5},
 
-  tabs:{display:"flex",gap:"18px",borderBottom:`1px solid ${T.line}`,marginBottom:"24px",overflowX:"auto"},
-  tab:(a)=>({flexShrink:0,padding:"0 0 10px",border:"none",background:"none",cursor:"pointer",fontSize:"13px",fontWeight:a?"500":"400",color:a?T.ink:T.mut,borderBottom:`1px solid ${a?T.ink:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
+  tabs:{display:"flex",gap:`${SP[6]}px`,borderBottom:`1px solid ${T.lineStrong}`,marginBottom:`${SP[6]}px`,overflowX:"auto"},
+  tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.lime:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
 
   squad:{marginBottom:"28px"},
-  sLbl:{fontSize:"11px",color:T.mut,marginBottom:"10px"},
-  bLbl:{fontSize:"11px",color:T.mut,margin:"18px 0 10px"},
-  chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:"6px",background:T.card,border:`1px solid ${T.line}`,borderRadius:"6px",padding:"5px 9px",margin:"0 5px 5px 0",fontSize:"12px",color:T.ink,opacity:bench?.55:1}),
+  sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
+  bLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,margin:`${SP[5]}px 0 ${SP[3]}px`},
+  chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:`${SP[2]}px`,background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,padding:`${SP[2]}px ${SP[3]}px`,margin:`0 ${SP[2]}px ${SP[2]}px 0`,fontSize:"13.5px",color:T.ink,opacity:bench?.55:1}),
   pos:(t)=>({fontSize:"9px",fontWeight:"600",letterSpacing:".04em",padding:"2px 4px",borderRadius:"3px",...POS_TINT[t]}),
 
-  btn:(d)=>({width:"100%",padding:"14px",background:d?T.card:T.ink,color:d?T.mut:T.bg,border:"none",borderRadius:"8px",fontSize:"14px",fontWeight:"500",cursor:d?"not-allowed":"pointer",fontFamily:"inherit"}),
-  secTitle:{fontSize:"11px",color:T.mut,marginBottom:"14px"},
+  btn:(d)=>({width:"100%",padding:"13px",background:d?T.card:T.lime,color:d?T.disabled:"#07090C",border:"none",borderRadius:`${R.ctrl}px`,fontSize:"15px",fontWeight:700,cursor:d?"not-allowed":"pointer",fontFamily:"inherit"}),
+  secTitle:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[4]}px`},
 
   // ── Veckan ──────────────────────────────────────────────────────────────
   weekBlock:{marginBottom:"30px"},
-  weekKicker:{fontSize:"11px",color:T.mut,marginBottom:"8px"},
-  weekLead:{fontSize:"22px",fontWeight:"400",color:T.ink,lineHeight:1.3,letterSpacing:"-.02em"},
-  weekSub:{fontSize:"14px",color:T.mut,marginTop:"7px",lineHeight:1.6},
+  weekKicker:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.lime,marginBottom:`${SP[2]}px`},
+  weekLead:{fontSize:"38px",lineHeight:"44px",fontWeight:800,color:T.ink,letterSpacing:"-.03em"},
+  weekSub:{fontSize:"15px",lineHeight:"25px",color:T.mut,marginTop:`${SP[3]}px`},
   weekRule:{border:"none",borderTop:`1px solid ${T.line}`,margin:"30px 0"},
   weekFlag:(kind)=>({display:"flex",gap:"9px",alignItems:"flex-start",fontSize:"14px",lineHeight:1.6,color:T.ink,marginBottom:"9px"}),
   weekDot:(col)=>({width:"6px",height:"6px",borderRadius:"50%",background:col,marginTop:"7px",flexShrink:0}),
   weekMuted:{color:T.mut},
-  weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13px",color:T.ink,textDecoration:"underline",textUnderlineOffset:"3px",cursor:"pointer"},
+  weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13.5px",fontWeight:600,color:T.lime,textDecoration:"none",borderBottom:`1px solid ${T.lime}`,paddingBottom:"1px",cursor:"pointer"},
 
-  card:(t)=>({background:T.card,borderRadius:"10px",padding:"18px",marginBottom:"12px",border:`1px solid ${T.line}`}),
+  card:(t)=>({background:T.card,borderRadius:`${R.card}px`,padding:`${SP[5]}px`,marginBottom:`${SP[3]}px`,border:`1px solid ${T.line}`}),
   cardHdr:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"6px",flexWrap:"wrap"},
   tag:(t)=>({fontSize:"11px",color:T.mut}),
   cardTitle:{fontSize:"15px",fontWeight:"500",color:T.ink,flex:1},
