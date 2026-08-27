@@ -141,7 +141,52 @@ handplockade utan stöd. De är inte verifierade mot något.
 `templateXI()` bygger den mest ägda lagliga elvan och startvyn visar hur många av
 dina elva som finns i den. Det är **ägarandel, inget annat** — se öppen tråd 3.
 
-## Utseende
+## Utseende — GafferOS designsystem v1.4
+Källa: `FPL Design System.pdf` på Johns skrivbord. Läs den med poppler
+(`pdftotext -layout` för text, `pdftoppm -png -r 110 -y N -H M` för utsnitt) —
+texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till.
+
+**Klart (steg 1 av 3):** färg, typografi, rytm.
+- Paletten ligger i `T`. Fyra ytnivåer, elevation genom yta och inte skugga.
+- `T.brand` / `brandHover` / `brandPress` är **interaktionslägen**, inte fria
+  nyanser: hover är ljusare (300), press mörkare (700). Blanda inte ihop dem.
+- Lime är ENDA varumärkesaccenten — primär åtgärd, aktivt läge, eget lag.
+  Grönt och rött bara för verklig numerisk riktning, aldrig dekoration.
+- FDR-rampen har neutralt grå trea så en rad medelmatcher läser som tystnad.
+- Archivo för text, IBM Plex Mono för varje siffra, alltid `tabular-nums`.
+- 4px-grid i `SP`, radius i `R`.
+
+**Kvar (steg 2):** layout. 264px rail, 12 kolumner, 24px gutters, max 1440,
+brytpunkter 1280 / 900 / 600 där railen fälls till ikoner och sedan bottenrad.
+Största klivet, och det enda där ett avbrott mitt i lämnar boten trasig — ta
+det i en session som får gå hela vägen.
+
+**Kvar (steg 3):** diagram, se nedan.
+
+## Diagram — vad datan bär
+GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
+märk ytterlägena i stället för varje tick.
+
+| Diagram | Källa | Status |
+|---|---|---|
+| Poäng per omgång | `history.current[].points` vs `events[].average_entry_score` | märk som **"du mot snittet"** |
+| Truppvärde (donut) | spelarpriser per position + bank | rakt av |
+| Rank (ytgraf) | `history.current[].overall_rank` | rakt av |
+| Hotanalys | xG, xA, `threat`, `creativity` | se nedan |
+| xP-nedbrytning | `estimateXp().parts` finns redan, kastas bort idag | vår egen, billigast att bygga |
+| xP per omgång | `estimateXpAt` | vår egen, visar blank/dubbel |
+
+**Finns INTE i FPL:s API, fejka dem inte:** top-10k-jämförelser (inget
+kaptensfält alls), "shots in box", "big chances". Guiden visar dem i sina
+exempel — det är illustrativ data, vilket står i dess egen sidfot.
+
+## Iframen på wennerqvist.design
+Får hela viewportbredden (uppmätt 1728px på en 16" MacBook), så
+1440-layouten ryms. Höjden var hårdkodad till 1200px; boten postar nu sin
+egen höjd som `{type:"gafferos:height"}`. John lägger in lyssnaren i Webflow
+— tills dess gäller det fasta talet, och innehållet är 1168px vid 1440 bredd.
+
+## Utseende (äldre anteckningar)
 Ett tokenobjekt `T` överst i filen håller hela paletten — mörkt granittema,
 varm gråröd sten snarare än blå skiffer, med dova signalfärger. Byt tema där
 och i `POS_TINT`, `fdrBg`, `fdrTx` och `xpColor`, inte inline. Filen har haft
