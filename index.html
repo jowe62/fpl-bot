@@ -789,14 +789,25 @@ function freeTransfersFor(history, gw){
 
 // ── Transfer recs ─────────────────────────────────────────────────────────────
 function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
-  const myIds=new Set([...starters,...bench].map(p=>p.id));
+  const squadAll=[...starters,...bench];
+  const myIds=new Set(squadAll.map(p=>p.id));
   const pool=bs.elements.filter(p=>xMins(p)>=0.5&&!myIds.has(p.id));
+
+  // Max tre spelare per klubb. Regeln las ur bootstrap i stället för att
+  // hårdkodas. Utan den föreslog boten spelare som inte gick att ta in —
+  // Maguire med tre Man Utd-spelare redan i truppen.
+  const TEAM_LIMIT = bs.game_settings?.squad_team_limit ?? 3;
+  const perTeam={};
+  for(const p of squadAll) perTeam[p.team]=(perTeam[p.team]||0)+1;
+
   const used=new Set();
   const trySwap=(scoreFn,extraFilter)=>{
     let best=null,bestG=-999;
     for(const out of starters){
       const budget=(out.now_cost/10)+bank;
-      const opts=pool.filter(p=>p.element_type===out.element_type&&p.now_cost/10<=budget&&!used.has(p.id)&&(!extraFilter||extraFilter(p)));
+      // Spelaren som går ut frigör sin klubbplats.
+      const roomFor=t=>(perTeam[t]||0)-(out.team===t?1:0) < TEAM_LIMIT;
+      const opts=pool.filter(p=>p.element_type===out.element_type&&p.now_cost/10<=budget&&!used.has(p.id)&&roomFor(p.team)&&(!extraFilter||extraFilter(p)));
       for(const inn of opts){const g=scoreFn(inn,fm)-scoreFn(out,fm);if(g>bestG){bestG=g;best={out,inn};}}
     }
     if(best)used.add(best.inn.id);
