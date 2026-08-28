@@ -413,6 +413,23 @@ function savePredictions(gw, squad, fm){
     localStorage.setItem(PRED_KEY, JSON.stringify(all));
   }catch{}
 }
+// Traffsakerhet per omgang, sa felet gar att folja over tid. Det talet ar
+// signalen for nar modellens grund bar tillrackligt for en solver.
+const ACC_KEY = "gafferos:accuracy";
+function saveAccuracy(gw, mae){
+  try{
+    const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
+    all[gw]=+mae.toFixed(2);
+    localStorage.setItem(ACC_KEY,JSON.stringify(all));
+  }catch{}
+}
+function readAccuracyHistory(){
+  try{
+    const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
+    return Object.entries(all).map(([gw,mae])=>({gw:+gw,mae})).sort((a,b)=>a.gw-b.gw);
+  }catch{ return []; }
+}
+
 function readPredictions(gw){
   try{ return (JSON.parse(localStorage.getItem(PRED_KEY)||"{}"))[gw] || null; }
   catch{ return null; }
@@ -452,6 +469,54 @@ function buildReview(picks, livePts, pb, tb, event, predicted){
     transfers:eh.event_transfers, transferCost:eh.event_transfers_cost,
     accuracy: buildAccuracy(picks, livePts, pb, predicted),
   };
+}
+
+// Bytesdomen: gav den du tog in mer an den du salde? Netto efter avdrag.
+// Utan detta gar det inte att lara sig nagot av sina byten.
+function buildTransferVerdict(transfers, gw, livePts, pb, cost){
+  const made=(transfers||[]).filter(t=>t.event===gw);
+  if(!made.length) return null;
+  const pts=id=>livePts[id]?.total_points ?? 0;
+  const rows=made.map(t=>({
+    inn:pb[t.element_in], out:pb[t.element_out],
+    innPts:pts(t.element_in), outPts:pts(t.element_out),
+    diff:pts(t.element_in)-pts(t.element_out),
+  }));
+  const gross=rows.reduce((s,r)=>s+r.diff,0);
+  return {rows, gross, cost:cost||0, net:gross-(cost||0)};
+}
+
+// Sammanfattning: vad som gick bra, vad som gick daligt och vad man bor bara
+// med sig. Varje punkt ar ett RAKNAT villkor — inga generella tips.
+function buildTakeaways(r){
+  const good=[], bad=[], watch=[];
+  if(r.avg!=null){
+    (r.points>=r.avg?good:bad).push(
+      `${r.points} poäng mot snittets ${r.avg} — ${Math.abs(r.points-r.avg)} ${r.points>=r.avg?"över":"under"}.`);
+  }
+  if(r.capLoss===0 && r.cap) good.push(`Kaptensvalet var det bästa i din elva.`);
+  if(r.capLoss>0) bad.push(`Kaptensbandet på ${r.cap.web_name} kostade ${r.capLoss} poäng mot bästa valet.`);
+
+  if(r.transferVerdict){
+    const tv=r.transferVerdict;
+    (tv.net>=0?good:bad).push(
+      tv.rows.map(x=>`${x.inn.web_name} ${x.innPts} mot ${x.out.web_name} ${x.outPts}`).join(", ")
+      + ` — netto ${tv.net>=0?"+":""}${tv.net} poäng${tv.cost?` efter avdrag −${tv.cost}`:""}.`);
+  }
+  if(r.blanked.length)
+    bad.push(`${r.blanked.map(p=>p.web_name).join(", ")} spelade inte en minut.`);
+
+  // Att tanka pa — monster som haller i sig, inte enstaka utfall.
+  const deadBench=r.benchNames.filter(b=>b.pts===0).length;
+  if(deadBench>=2)
+    watch.push(`${deadBench} av fyra bänkspelare gav noll. En tunn bänk kostar först när någon i elvan uteblir, men då kostar den mycket.`);
+  if(r.accuracy && r.accuracy.mae>3)
+    watch.push(`Modellen låg ${r.accuracy.mae.toFixed(1)} poäng fel i snitt. Väg dess råd mot din egen läsning tills siffran krymper.`);
+  if(r.accuracy && r.accuracy.mae<=3)
+    watch.push(`Modellen låg ${r.accuracy.mae.toFixed(1)} poäng fel i snitt, vilket är rimligt för en omgång med det här underlaget.`);
+  if(r.pct!=null && r.pct>50)
+    watch.push(`Du ligger i percentil ${r.pct}. Det är hälften av fältet framför dig — kaptensvalet är den enskilt snabbaste vägen att flytta det.`);
+  return {good, bad, watch};
 }
 
 // Hur nara gick modellen? Medelavvikelsen i poang per spelare, plus var den
@@ -1360,6 +1425,40 @@ function ReviewTab({review:r,tb}){
         </div>
       </div>
 
+      {r.takeaways && (r.takeaways.good.length||r.takeaways.bad.length||r.takeaways.watch.length) && <>
+        <hr style={c.weekRule}/>
+        <div style={c.weekBlock}>
+          <div style={c.weekKicker}>Sammanfattning</div>
+          {r.takeaways.good.map((t,i)=>(
+            <div key={"g"+i} style={c.weekFlag()}><span style={c.weekDot(T.good)}/><span>{t}</span></div>))}
+          {r.takeaways.bad.map((t,i)=>(
+            <div key={"b"+i} style={c.weekFlag()}><span style={c.weekDot(T.bad)}/><span>{t}</span></div>))}
+          {r.takeaways.watch.map((t,i)=>(
+            <div key={"w"+i} style={{...c.weekFlag(),...c.weekMuted}}><span style={c.weekDot(T.warn)}/><span>{t}</span></div>))}
+        </div>
+      </>}
+
+      {r.transferVerdict && <>
+        <hr style={c.weekRule}/>
+        <div style={c.weekBlock}>
+          <div style={c.weekKicker}>Bytena</div>
+          <div style={c.weekLead}>
+            {r.transferVerdict.net>=0
+              ? <>Bytet gav {r.transferVerdict.net} poäng</>
+              : <>Bytet kostade {Math.abs(r.transferVerdict.net)} poäng</>}
+          </div>
+          <div style={c.weekSub}>
+            {r.transferVerdict.rows.map((x,i)=>(
+              <div key={i}>
+                In: {x.inn.web_name} {x.innPts} p · Ut: {x.out.web_name} {x.outPts} p
+                {" "}({x.diff>=0?"+":""}{x.diff})
+              </div>
+            ))}
+            {r.transferVerdict.cost>0 && <>Poängavdraget var −{r.transferVerdict.cost}.</>}
+          </div>
+        </div>
+      </>}
+
       <hr style={c.weekRule}/>
 
       <div style={c.weekBlock}>
@@ -1392,6 +1491,25 @@ function ReviewTab({review:r,tb}){
             {" "}Mest överskattad: {r.accuracy.under.p.web_name}, {r.accuracy.under.pred.toFixed(1)} xP
             men {r.accuracy.under.act} poäng.
           </div>
+          {r.accuracyHistory && r.accuracyHistory.length>1 && (
+            <div style={{marginTop:`${SP[4]}px`}}>
+              <div style={{...c.legendTxt,marginBottom:`${SP[2]}px`}}>Fel per omgång — krymper det bär modellen</div>
+              <div style={c.barsWrap}>
+                {r.accuracyHistory.map(a=>{
+                  const max=Math.max(...r.accuracyHistory.map(x=>x.mae),1);
+                  return(
+                    <div key={a.gw} style={c.barCol}>
+                      <span className="num" style={{...c.barVal,color:T.mut}}>{a.mae.toFixed(1)}</span>
+                      <div style={c.barPair}>
+                        <div style={{width:"14px",height:`${(a.mae/max)*90}px`,background:T.info,borderRadius:"2px 2px 0 0"}}/>
+                      </div>
+                      <span style={c.barLbl}>GW{a.gw}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </>}
 
@@ -1624,11 +1742,12 @@ function App(){
         if(!next)throw new Error("FPL har ingen kommande omgång (is_next saknas) — går inte att ge råd för nästa GW.");
         const gw=next.id;
         SEASON.nextGw=gw;
-        const [picks,rawFx,history,liveGw]=await Promise.all([
+        const [picks,rawFx,history,liveGw,transfersLog]=await Promise.all([
           fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),
           fplFetch("/fixtures/"),
           fplFetch(`/entry/${TEAM_ID}/history/`),
           fplFetch(`/event/${squadGw}/live/`),
+          fplFetch(`/entry/${TEAM_ID}/transfers/`),
         ]);
         let freeTransfers=freeTransfersFor(history,gw);
         const chipAvail=chipAvailability(bs,history,gw);
@@ -1679,6 +1798,12 @@ function App(){
         // Facit för senast spelade omgång.
         const livePts=Object.fromEntries((liveGw.elements||[]).map(e=>[e.id,e.stats]));
         const review=buildReview(picks,livePts,pb,tb,bs.events.find(e=>e.id===squadGw),readPredictions(squadGw));
+        review.transferVerdict=buildTransferVerdict(transfersLog,squadGw,livePts,pb,picks.entry_history.event_transfers_cost);
+        review.takeaways=buildTakeaways(review);
+        // Traffsakerheten sparas per omgang sa en trend gar att visa nar det
+        // finns flera matpunkter.
+        if(review.accuracy) saveAccuracy(squadGw, review.accuracy.mae);
+        review.accuracyHistory=readAccuracyHistory();
 
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
         const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
