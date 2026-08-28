@@ -11,6 +11,9 @@
 const FPL_BASE = "https://fantasy.premierleague.com/api";
 const CACHE_MS = 30 * 60 * 1000;   // ligan rör sig långsamt; en halvtimme räcker
 const MAX_MEMBERS = 50;
+// Kaptenshistorik hamtas per medlem OCH omgang. Utan tak blir det medlemmar
+// gånger 38 anrop i maj, sa vi tar bara de senaste omgangarna.
+const CAPTAIN_GWS = 6;
 
 const FPL_HEADERS = {
   "User-Agent": "Mozilla/5.0",
@@ -71,8 +74,45 @@ export default async function handler(req, res) {
       return { gw, rows: row.map(r => ({ ...r, pos: pos.get(r.entry) ?? null })) };
     });
 
+    // Senast spelade omgang — for truppoverlapp och kaptensjamforelse.
+    const lastGw = gws.length ? gws[gws.length - 1] : null;
+    const capGws = gws.slice(-CAPTAIN_GWS);
+
+    // En picks-hamtning per medlem och omgang i fonstret. Truppen tas ur den
+    // sista, kaptenen ur varje.
+    const pickJobs = [];
+    for (const { entry } of ok)
+      for (const gw of capGws)
+        pickJobs.push(
+          jget(`${FPL_BASE}/entry/${entry}/event/${gw}/picks/`)
+            .then(d => ({ entry, gw, d }))
+            .catch(() => null)
+        );
+    const picked = (await Promise.all(pickJobs)).filter(Boolean);
+
+    const squads = {};      // entry -> [element-id] for sista omgangen
+    const captains = {};    // entry -> { gw: element-id }
+    for (const { entry, gw, d } of picked) {
+      const cap = d.picks.find(p => p.is_captain);
+      if (cap) (captains[entry] ??= {})[gw] = cap.element;
+      if (gw === lastGw) squads[entry] = d.picks.map(p => p.element);
+    }
+
+    // Truppoverlapp: antal delade spelare mellan varje par.
+    const overlap = {};
+    const entries = Object.keys(squads);
+    for (const a of entries) {
+      const sa = new Set(squads[a]);
+      overlap[a] = {};
+      for (const b of entries) {
+        if (a === b) continue;
+        overlap[a][b] = squads[b].filter(id => sa.has(id)).length;
+      }
+    }
+
     const payload = {
       updated: new Date().toISOString(),
+      lastGw, capGws, squads, captains, overlap,
       league: { id: +id, name: standings.league?.name ?? null },
       members: members.map(m => {
         const rec = ok.find(x => x.entry === m.entry);
