@@ -547,6 +547,59 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
   ];
 }
 
+// ── Live-trupp från bokmärkesknappen ────────────────────────────────────────
+// FPL publicerar en omgångs trupp först efter dess deadline, och /my-team/
+// kräver inloggning bakom ett botskydd som en serverfunktion inte tar sig
+// förbi. Lösningen: en bokmärkesknapp som John klickar när han redan är
+// inloggad på fantasy.premierleague.com. Den läser /api/my-team/ med hans
+// egen session, i hans egen webbläsare, och skickar hit resultatet.
+//
+// Inget lösenord delas och inget botskydd kringgås — det är hans data,
+// hämtad av honom själv.
+const LIVE_KEY = "gafferos:myteam";
+
+// Kastar hellre än att tyst använda data vi inte förstår. En trupp som ser
+// fel ut är farligare än ingen trupp alls.
+function validateLiveSquad(d){
+  if(!d || typeof d!=="object") throw new Error("tom nyttolast");
+  if(!Array.isArray(d.picks) || d.picks.length!==15)
+    throw new Error(`förväntade 15 spelare, fick ${d.picks?.length}`);
+  for(const p of d.picks)
+    if(typeof p.element!=="number" || typeof p.position!=="number")
+      throw new Error("picks saknar element eller position");
+  if(typeof d.gw!=="number") throw new Error("saknar omgång");
+  return d;
+}
+
+function readLiveSquad(gw){
+  let raw;
+  try{ raw = localStorage.getItem(LIVE_KEY); }catch{ return null; }
+  if(!raw) return null;
+  let d;
+  try{ d = validateLiveSquad(JSON.parse(raw)); }
+  catch(e){ console.warn("[GafferOS] sparad trupp förkastad:", e.message); return null; }
+  // En trupp hämtad för en tidigare omgång är inte längre sann.
+  if(d.gw !== gw) return null;
+  return d;
+}
+
+// Bokmärkesknappen öppnar boten med nyttolasten i URL-fragmentet. Fragmentet
+// skickas aldrig till servern, så truppen lämnar aldrig webbläsaren.
+function captureLiveSquadFromHash(){
+  const m = /[#&]team=([^&]+)/.exec(location.hash||"");
+  if(!m) return null;
+  try{
+    const d = validateLiveSquad(JSON.parse(decodeURIComponent(escape(atob(m[1])))));
+    d.savedAt = Date.now();
+    try{ localStorage.setItem(LIVE_KEY, JSON.stringify(d)); }catch{}
+    history.replaceState(null,"",location.pathname+location.search);
+    return d;
+  }catch(e){
+    console.error("[GafferOS] kunde inte läsa truppen från bokmärkesknappen:", e.message);
+    return {error:e.message};
+  }
+}
+
 // ── Fria transfers ────────────────────────────────────────────────────────────
 // FPL exponerar dem inte som fält, så de härleds ur /entry/{id}/history/.
 // Regler (premierleague.com/en/news/2174907): din första omgång har obegränsade
@@ -639,6 +692,8 @@ const c={
   tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.brand:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
 
   squad:{marginBottom:"28px"},
+  liveNote:{fontSize:"12px",lineHeight:1.6,color:T.good,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.good}`,maxWidth:"640px"},
+  errNote:{fontSize:"12px",lineHeight:1.6,color:T.bad,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.bad}`,maxWidth:"640px"},
   staleNote:{fontSize:"12px",lineHeight:1.6,color:T.dim,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.line}`,maxWidth:"640px"},
   sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
   bLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,margin:`${SP[5]}px 0 ${SP[3]}px`},
@@ -1108,7 +1163,7 @@ function App(){
         const gw=next.id;
         SEASON.nextGw=gw;
         const [picks,rawFx,history]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),fplFetch("/fixtures/"),fplFetch(`/entry/${TEAM_ID}/history/`)]);
-        const freeTransfers=freeTransfersFor(history,gw);
+        let freeTransfers=freeTransfersFor(history,gw);
         const chipAvail=chipAvailability(bs,history,gw);
         const fm={};
         for(const f of rawFx){
@@ -1120,8 +1175,20 @@ function App(){
         for(const k of Object.keys(fm))fm[k].sort((a,b)=>a.gw-b.gw);
         const pb=Object.fromEntries(bs.elements.map(p=>[p.id,p]));
         const tb=Object.fromEntries(bs.teams.map(t=>[t.id,t]));
-        const bank=picks.entry_history.bank/10;
-        const myP=picks.picks.map(p=>({...pb[p.element],sqPos:p.position,isCaptain:p.is_captain,isVice:p.is_vice_captain}));
+        // Live-truppen vinner nar den finns och galler ratt omgang. Da speglar
+        // boten det lag som faktiskt stallts upp, inte det som senast spelade.
+        const live = captureLiveSquadFromHash() || readLiveSquad(gw);
+        const liveOk = live && !live.error;
+        const source = liveOk ? {picks:live.picks, gw} : {picks:picks.picks, gw:squadGw};
+
+        const bank = liveOk && typeof live.bank==="number"
+          ? live.bank/10
+          : picks.entry_history.bank/10;
+        // FPL:s egen siffra slår vår härledning när vi har den. Måste stå
+        // EFTER att live är deklarerad — Babel gör const till var, så en
+        // åtkomst här ovanför blir tyst undefined i stället för att kasta.
+        if(liveOk && typeof live.freeTransfers==="number") freeTransfers=live.freeTransfers;
+        const myP=source.picks.map(p=>({...pb[p.element],sqPos:p.position,isCaptain:p.is_captain,isVice:p.is_vice_captain}));
         const starters=myP.filter(p=>p.sqPos<=11);
         const bench=myP.filter(p=>p.sqPos>11).sort((a,b)=>a.sqPos-b.sqPos);
 
@@ -1135,7 +1202,7 @@ function App(){
         // finns inget att kalibrera mot och proxyn får stå som den är.
         SEASON.attackScale = haveOdds ? calibrateAttackScale(bs.elements,fm) : 1;
 
-        setFplData({bs,entry,fm,tb,gw,squadGw,bank,starters,bench,freeTransfers,chipAvail});
+        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError(e.message);}
       finally{setLoading(false);}
     })();
@@ -1152,7 +1219,7 @@ function App(){
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -1183,13 +1250,24 @@ function App(){
       </div>
 
       <div style={c.squad}>
-        <div style={c.sLbl}>Startspelare · ditt lag i GW{squadGw}</div>
-        <div style={c.staleNote}>
-          FPL publicerar en omgångs trupp först när dess deadline passerat. Har du
-          gjort byten inför GW{gw} syns de inte här, och då kan både truppen ovan,
-          antalet fria transfers och bytesförslagen gälla ett lag du redan ändrat.
-          Efter deadline rättar det sig av sig självt.
+        <div style={c.sLbl}>
+          Startspelare · {live ? <>ditt lag för GW{gw}</> : <>ditt lag i GW{squadGw}</>}
         </div>
+        {live
+          ? <div style={c.liveNote}>
+              ● Trupp och bank hämtade från FPL {new Date(live.savedAt).toLocaleString("sv-SE",{dateStyle:"short",timeStyle:"short"})}.
+              {typeof live.freeTransfers!=="number" &&
+                <> Antalet fria transfers kom INTE med — det visade talet är härlett och kan vara fel.
+                   {live.raw ? <> FPL skickade fälten: {Object.keys(live.raw).join(", ")}.</> : null}</>}
+              {" "}<button style={c.weekLink} onClick={()=>{try{localStorage.removeItem(LIVE_KEY);}catch{} location.reload();}}>Rensa</button>
+            </div>
+          : <div style={c.staleNote}>
+              FPL publicerar en omgångs trupp först när dess deadline passerat. Har du
+              gjort byten inför GW{gw} syns de inte här, och då kan både truppen ovan,
+              antalet fria transfers och bytesförslagen gälla ett lag du redan ändrat.
+              Använd bokmärkesknappen för att hämta ditt aktuella lag.
+            </div>}
+        {liveError && <div style={c.errNote}>Bokmärkesknappen skickade något boten inte förstod: {liveError}</div>}
         <div>{starters.map(p=><PlayerChip key={p.id} p={p} bench={false} fm={fm}/>)}</div>
         <div style={c.bLbl}>Bänk</div>
         <div>{bench.map(p=><PlayerChip key={p.id} p={p} bench={true} fm={fm}/>)}</div>
