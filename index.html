@@ -8,6 +8,29 @@
      ändrad ställning aldrig får raden att hoppa. GafferOS §02. */
   .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
   button:focus-visible{outline:2px solid #C8FF2E;outline-offset:2px;}
+
+  /* GafferOS §13 — brytpunkter 1280 / 900 / 600.
+     Rail 264px med etiketter, sedan ikoner, sedan bottenrad. */
+  .shell{display:grid;grid-template-columns:264px minmax(0,1fr);gap:32px;
+         max-width:1440px;margin:0 auto;padding:24px;min-height:100vh;}
+  .rail{position:sticky;top:24px;align-self:start;display:flex;flex-direction:column;gap:4px;}
+  .rail .lbl{display:inline;}
+  .railfoot{margin-top:24px;}
+
+  @media (max-width:1279px){
+    .shell{grid-template-columns:54px minmax(0,1fr);gap:20px;}
+    .rail .lbl{display:none;}
+    .rail button{justify-content:center;padding-left:0;padding-right:0;}
+    .railfoot{display:none;}
+  }
+  @media (max-width:599px){
+    .shell{grid-template-columns:minmax(0,1fr);gap:0;padding:16px 16px 88px;}
+    .rail{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;
+          justify-content:space-around;background:#0E1116;border-top:1px solid #1E242D;
+          padding:8px 4px;z-index:50;gap:0;}
+    .rail .lbl{display:inline;font-size:10px;}
+    .rail button{flex-direction:column;gap:2px;font-size:10px;}
+  }
 </style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -62,6 +85,17 @@ const POS_TINT = {
   4:{background:"rgba(255,46,126,.12)", color:"#FF2E7E"},
 };
 const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
+
+// Lagfärger. FPL exponerar inga — bootstrap.teams har varken colour, kit
+// eller badge — så de ligger här. Nycklas på short_name, som är stabilt.
+// Uppdatera vid upp- och nedflyttning; ett okänt lag får en neutral list.
+const TEAM_COLOR = {
+  ARS:"#EF0107", AVL:"#670E36", BOU:"#DA291C", BRE:"#E30613", BHA:"#0057B8",
+  CHE:"#034694", COV:"#6CB4E4", CRY:"#1B458F", EVE:"#003399", FUL:"#B4B4B4",
+  HUL:"#F5A12D", IPS:"#3A64A3", LEE:"#1D428A", LIV:"#C8102E", MCI:"#6CABDD",
+  MUN:"#DA291C", NEW:"#41535F", NFO:"#DD0000", TOT:"#132257", SUN:"#EB172B",
+};
+const teamColor = sn => TEAM_COLOR[sn] || "#6C7684";
 const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
 
 const fplFetch = path =>
@@ -676,7 +710,14 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
 // ── Styles ────────────────────────────────────────────────────────────────────
 const c={
   // Archivo bär röst och gränssnitt, IBM Plex Mono varje siffra. GafferOS §02.
-  root:{fontFamily:'"Archivo",system-ui,sans-serif',color:T.ink,background:T.bg,maxWidth:"1440px",margin:"0 auto",padding:`${SP[5]}px ${SP[5]}px ${SP[10]}px`,minHeight:"100vh"},
+  root:{fontFamily:'"Archivo",system-ui,sans-serif',color:T.ink,background:T.bg},
+  railBtn:(a)=>({display:"flex",alignItems:"center",gap:`${SP[3]}px`,width:"100%",
+    padding:`${SP[3]}px ${SP[3]}px`,border:"none",borderRadius:`${R.ctrl}px`,cursor:"pointer",
+    background:a?T.card:"transparent",color:a?T.ink:T.mut,fontFamily:"inherit",
+    fontSize:"14px",fontWeight:a?700:400,textAlign:"left",
+    borderLeft:`2px solid ${a?T.brand:"transparent"}`}),
+  railIcon:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"12px",fontWeight:700,width:"18px",textAlign:"center",flexShrink:0},
+  railBrand:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:700,letterSpacing:".14em",color:T.brand,padding:`0 ${SP[3]}px ${SP[5]}px`},
 
   hdr:{marginBottom:"28px",paddingBottom:"20px",borderBottom:`1px solid ${T.line}`},
   hdrTitle:{fontSize:"21px",lineHeight:"28px",fontWeight:800,color:T.ink,letterSpacing:"-.01em"},
@@ -697,6 +738,19 @@ const c={
   staleNote:{fontSize:"12px",lineHeight:1.6,color:T.dim,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.line}`,maxWidth:"640px"},
   sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
   bLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,margin:`${SP[5]}px 0 ${SP[3]}px`},
+  // Planvy och spelarkort
+  pitch:{display:"flex",flexDirection:"column",gap:`${SP[3]}px`},
+  pitchRow:{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:`${SP[2]}px`},
+  pCard:(bench)=>({width:"132px",background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.card}px`,overflow:"hidden",opacity:bench?.72:1}),
+  pBar:(col)=>({height:"4px",background:col}),
+  pBody:{padding:`${SP[2]}px ${SP[3]}px ${SP[3]}px`},
+  pTop:{display:"flex",alignItems:"center",gap:`${SP[1]}px`,marginBottom:`${SP[1]}px`},
+  pArm:(col)=>({fontFamily:'"IBM Plex Mono",monospace',fontSize:"9px",fontWeight:700,color:col,border:`1px solid ${col}`,borderRadius:`${R.pill}px`,width:"14px",height:"14px",display:"inline-flex",alignItems:"center",justifyContent:"center"}),
+  pName:{fontSize:"14px",fontWeight:700,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-.01em"},
+  pMeta:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",color:T.dim,marginTop:"1px"},
+  pStats:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:`${SP[2]}px`},
+  pPrice:{fontSize:"12px",color:T.mut},
+  pXp:(v)=>({fontSize:"14px",fontWeight:700,color:xpColor(v)}),
   chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:`${SP[2]}px`,background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,padding:`${SP[2]}px ${SP[3]}px`,margin:`0 ${SP[2]}px ${SP[2]}px 0`,fontSize:"13.5px",color:T.ink,opacity:bench?.55:1}),
   pos:(t)=>({fontSize:"9px",fontWeight:"600",letterSpacing:".04em",padding:"2px 4px",borderRadius:"3px",...POS_TINT[t]}),
 
@@ -744,8 +798,55 @@ const c={
   injBadge:{fontSize:"10px",color:T.bad,marginLeft:"2px"},
   doubtBadge:{fontSize:"10px",color:T.warn,marginLeft:"2px"},
   error:{border:`1px solid ${T.bad}`,borderRadius:"10px",padding:"16px",marginTop:"16px",color:T.bad,fontSize:"13px",lineHeight:1.6},
-  disclaimer:{fontSize:"11px",color:T.mut,marginTop:"32px",paddingTop:"18px",borderTop:`1px solid ${T.line}`,lineHeight:1.6}
+  disclaimer:{fontSize:"11px",color:T.mut,maxWidth:"1440px",margin:"0 auto",padding:`${SP[5]}px`,borderTop:`1px solid ${T.line}`,lineHeight:1.6}
 };
+
+// Spelarkort — GafferOS §08: identitet plus statistik. Lagfärgad list överst
+// så laget känns igen utan tröjbild, motståndare och hemma/borta under namnet.
+function PlayerCard({p,fm,tb,bench}){
+  const e=estimateXp(p,fm);
+  const f=(fm[p.team]||[])[0];
+  const sn=tb[p.team]?.short_name;
+  return(
+    <div style={c.pCard(bench)}>
+      <div style={c.pBar(teamColor(sn))}/>
+      <div style={c.pBody}>
+        <div style={c.pTop}>
+          <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+          {p.isCaptain&&<span style={c.pArm(T.brand)}>C</span>}
+          {p.isVice&&<span style={c.pArm(T.mut)}>V</span>}
+          {isInjured(p)&&<span style={c.pArm(T.bad)}>✕</span>}
+          {!isInjured(p)&&isDoubtful(p)&&<span style={c.pArm(T.warn)}>!</span>}
+        </div>
+        <div style={c.pName}>{p.web_name}</div>
+        <div style={c.pMeta}>
+          {sn} · {f? <>{f.home?"":"@"}{tb[f.oppId]?.short_name}</> : "ingen match"}
+        </div>
+        <div style={c.pStats}>
+          <span className="num" style={c.pPrice}>£{(p.now_cost/10).toFixed(1)}</span>
+          <span className="num" style={c.pXp(e.xp)}>{e.xp.toFixed(1)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Planvy. Raderna följer FPL:s uppställning så formationen går att läsa av.
+// Bänken har ingen formation och ligger därför på en enda rad, som hos FPL.
+function Pitch({players,fm,tb,bench,singleRow}){
+  const rows = singleRow
+    ? [players]
+    : [1,2,3,4].map(t=>players.filter(p=>p.element_type===t)).filter(r=>r.length);
+  return(
+    <div style={c.pitch}>
+      {rows.map((row,i)=>(
+        <div key={i} style={c.pitchRow}>
+          {row.map(p=><PlayerCard key={p.id} p={p} fm={fm} tb={tb} bench={bench}/>)}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function PlayerChip({p,bench,fm}){
   const e=estimateXp(p,fm);
@@ -1118,12 +1219,12 @@ function InjuryTab({starters,bench}){
 }
 
 const TABS=[
-  {id:"week",label:"Veckan"},
-  {id:"captain",label:"Kapten"},
-  {id:"transfers",label:"Byten"},
-  {id:"fixtures",label:"Fixtures"},
-  {id:"chips",label:"Chips"},
-  {id:"injuries",label:"Skador"},
+  {id:"week",label:"Veckan",icon:"//"},
+  {id:"captain",label:"Kapten",icon:"C"},
+  {id:"transfers",label:"Byten",icon:"⇄"},
+  {id:"fixtures",label:"Fixtures",icon:"▦"},
+  {id:"chips",label:"Chips",icon:"◆"},
+  {id:"injuries",label:"Skador",icon:"!"},
 ];
 
 function App(){
@@ -1137,6 +1238,14 @@ function App(){
 
   // Sidan ligger i en iframe med fast hojd pa wennerqvist.design. I stallet
   // for att gissa ett tal rapporterar boten sin egen hojd till foraldern.
+  // Klickas bokmärket när boten redan är öppen byter bara fragmentet, och
+  // webbläsaren laddar inte om. Då måste vi göra det själva.
+  useEffect(()=>{
+    const onHash=()=>{ if(/[#&]team=/.test(location.hash)) location.reload(); };
+    window.addEventListener("hashchange",onHash);
+    return ()=>window.removeEventListener("hashchange",onHash);
+  },[]);
+
   useEffect(()=>{
     if(window.parent===window) return;
     const post=()=>window.parent.postMessage(
@@ -1242,6 +1351,24 @@ function App(){
 
   return(
     <div style={c.root}>
+     <div className="shell">
+      <nav className="rail">
+        <div style={c.railBrand}>GAFFER/OS</div>
+        {TABS.map(t=>(
+          <button key={t.id} style={c.railBtn(tab===t.id)} onClick={()=>setTab(t.id)}>
+            <span style={c.railIcon}>{t.icon}</span>
+            <span className="lbl">{t.label}</span>
+          </button>
+        ))}
+        <div className="railfoot">
+          <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
+          {oddsStatus==="on" && teamsNoOdds.length>0 &&
+            <div style={c.oddsWarn}>Utan odds, körs på xG: {teamsNoOdds.map(t=>tb[t]?.short_name).join(", ")}</div>}
+          {ODDS.coverage?.unmappedTeams?.length>0 &&
+            <div style={c.oddsWarn}>Omappade lagnamn: {ODDS.coverage.unmappedTeams.join(", ")}</div>}
+        </div>
+      </nav>
+      <main>
       <div style={c.hdr}>
         <div style={c.hdrTitle}>{entry.name}</div>
         <div style={c.hdrSub}>FPL Advisor · GW{gw}</div>
@@ -1253,11 +1380,6 @@ function App(){
           {squadValue!=null &&
             <div style={c.stat}><div style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
         </div>
-        <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
-        {oddsStatus==="on" && teamsNoOdds.length>0 &&
-          <div style={c.oddsWarn}>Utan odds, körs på xG: {teamsNoOdds.map(t=>tb[t]?.short_name).join(", ")}</div>}
-        {ODDS.coverage?.unmappedTeams?.length>0 &&
-          <div style={c.oddsWarn}>Lagnamn proxyn inte kunde mappa: {ODDS.coverage.unmappedTeams.join(", ")}</div>}
       </div>
 
       <div style={c.squad}>
@@ -1279,14 +1401,11 @@ function App(){
               Använd bokmärkesknappen för att hämta ditt aktuella lag.
             </div>}
         {liveError && <div style={c.errNote}>Bokmärkesknappen skickade något boten inte förstod: {liveError}</div>}
-        <div>{starters.map(p=><PlayerChip key={p.id} p={p} bench={false} fm={fm}/>)}</div>
-        <div style={c.bLbl}>Bänk</div>
-        <div>{bench.map(p=><PlayerChip key={p.id} p={p} bench={true} fm={fm}/>)}</div>
+        <Pitch players={starters} fm={fm} tb={tb} bench={false}/>
+        <div style={c.bLbl}>Bänk · i ordning för auto-byten</div>
+        <Pitch players={bench} fm={fm} tb={tb} bench={true} singleRow/>
       </div>
 
-      <div style={c.tabs}>
-        {TABS.map(t=><button key={t.id} style={c.tab(tab===t.id)} onClick={()=>setTab(t.id)}>{t.label}</button>)}
-      </div>
 
       {tab==="week"&&<WeekTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw} freeTransfers={freeTransfers} chipAvail={chipAvail} setTab={setTab}/>}
       {tab==="transfers"&&(
@@ -1314,6 +1433,8 @@ function App(){
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
+      </main>
+     </div>
       <div style={c.disclaimer}>xP-modell byggd på speltidsandel (xMins), xG/xA per 90, clean sheet-sannolikhet och fixtures. Odds kopplas på via plugin. Alltid ditt eget ansvar att fatta det slutliga beslutet.</div>
     </div>
   );
