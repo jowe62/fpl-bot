@@ -195,6 +195,41 @@ De gamla trösklarna (`avgTeamFdr3 > 3.3`, `benchXp >= 14`) var handplockade uta
 stöd, och en "för"-punkt påstod att Bench Boost ger 6–8 poäng i snitt utan
 källa. Återinför inget av det.
 
+## Tillförlitlighet — den bärande regeln
+Flera funktioner är byggda **innan datan bär**, med flit, för att de blir bättre
+för varje omgång. Priset är att var och en måste säga vad den är värd just nu.
+`maturity(needed)` jämför spelade omgångar mot vad funktionen kräver och skriver
+ut det. **Bygg aldrig en ny funktion på tunn data utan att sätta en
+mognadsmarkering på den** — då blir "bygg tidigt" samma sak som att ljuga tidigt.
+
+## Rotationsplan
+Bästa elvan i var och en av de fem kommande omgångarna. Bygger på
+`estimateXpAt` och samma uttömmande formationssökning som `bestXI`. Blank
+markeras rött, dubbelomgång med ². Kräver 4 omgångar för att vara pålitlig.
+
+## Eliten — riktig effective ownership
+`/api/elite` hämtar `leagues-classic/314/standings` och sedan varje managers
+`picks`. Ur det faller ägande, startandel, **kaptensandel** och chip-användning,
+alltså äkta EO. 50 lag parallellt på servern, cachat 6h.
+
+**Varning som står i UI:t:** tidigt på säsongen speglar topplistan tur, inte
+skicklighet. Uppmätt i GW1: 94 % av topp 50 hade spelat Bench Boost. Kräver 6
+omgångar för att betyda något.
+
+## Egna svårighetsbetyg
+Lagens anfall och försvar krympta mot ligasnittet. Visas **bredvid** FPL:s, inte
+i stället — lagdata så här tidigt är sämre än FPL:s förhandssatta 1–5.
+
+## Självkalibrering
+Modellen jämför sina sparade prognoser mot faktiskt utfall och rättar en
+systematisk skevhet. Kräver minst **tre** mätta omgångar, och faktorn kläms till
+0,7–1,4 så en enskild galen omgång inte kan kapa modellen. Är 1 tills dess.
+
+Nycklar i localStorage: `glennos:predictions`, `glennos:actuals`,
+`glennos:accuracy`, `glennos:myteam`. Hette `gafferos:*` före 28 aug 2026 och
+migreras en gång vid start — **ta inte bort migreringen** förrän du vet att
+ingen webbläsare har gammal data kvar.
+
 ## Facit — efterhandsanalys
 Egen flik. Bygger på `/event/{gw}/live/`, som ger varje spelares **faktiska**
 poäng för omgången, plus picks och `entry_history`.
