@@ -1184,10 +1184,17 @@ function App(){
         const bank = liveOk && typeof live.bank==="number"
           ? live.bank/10
           : picks.entry_history.bank/10;
-        // FPL:s egen siffra slår vår härledning när vi har den. Måste stå
+        // FPL:s egna siffror slår vår härledning när vi har dem. Måste stå
         // EFTER att live är deklarerad — Babel gör const till var, så en
         // åtkomst här ovanför blir tyst undefined i stället för att kasta.
-        if(liveOk && typeof live.freeTransfers==="number") freeTransfers=live.freeTransfers;
+        //
+        // /my-team/ ger transfers som {limit, made, cost, status, bank, value}.
+        // limit är TILLDELNINGEN för omgången, inte återstoden — med limit 1
+        // och made 1 är noll kvar, och status "cost" bekräftar att nästa byte
+        // kostar poäng. Att läsa limit rakt av gav fel siffra i UI:t.
+        const tr = liveOk ? live.raw : null;
+        if(tr && typeof tr.limit==="number" && typeof tr.made==="number")
+          freeTransfers = Math.max(0, tr.limit - tr.made);
         const myP=source.picks.map(p=>({...pb[p.element],sqPos:p.position,isCaptain:p.is_captain,isVice:p.is_vice_captain}));
         const starters=myP.filter(p=>p.sqPos<=11);
         const bench=myP.filter(p=>p.sqPos>11).sort((a,b)=>a.sqPos-b.sqPos);
@@ -1202,7 +1209,9 @@ function App(){
         // finns inget att kalibrera mot och proxyn får stå som den är.
         SEASON.attackScale = haveOdds ? calibrateAttackScale(bs.elements,fm) : 1;
 
-        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
+        const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
+        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError(e.message);}
       finally{setLoading(false);}
     })();
@@ -1219,7 +1228,7 @@ function App(){
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,live,liveError}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -1241,6 +1250,8 @@ function App(){
           <div style={c.stat}><div style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
           <div style={c.stat}><div style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
           <div style={c.stat}><div style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
+          {squadValue!=null &&
+            <div style={c.stat}><div style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
         </div>
         <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
         {oddsStatus==="on" && teamsNoOdds.length>0 &&
@@ -1256,7 +1267,7 @@ function App(){
         {live
           ? <div style={c.liveNote}>
               ● Trupp och bank hämtade från FPL {new Date(live.savedAt).toLocaleString("sv-SE",{dateStyle:"short",timeStyle:"short"})}.
-              {typeof live.freeTransfers!=="number" &&
+              {!(live.raw && typeof live.raw.limit==="number" && typeof live.raw.made==="number") &&
                 <> Antalet fria transfers kom INTE med — det visade talet är härlett och kan vara fel.
                    {live.raw ? <> FPL skickade fälten: {Object.keys(live.raw).join(", ")}.</> : null}</>}
               {" "}<button style={c.weekLink} onClick={()=>{try{localStorage.removeItem(LIVE_KEY);}catch{} location.reload();}}>Rensa</button>
@@ -1283,6 +1294,7 @@ function App(){
           <div style={c.ftBox}>
             Du har <strong>{freeTransfers}</strong> {freeTransfers===1?"fri transfer":"fria transfers"} den här omgången.
             Varje ytterligare byte kostar <strong>−4 poäng</strong>.
+            {live?.raw?.status==="cost" && <> FPL säger att din nuvarande plan redan kostar <strong>−{live.raw.cost}</strong>.</>}
             {" "}Förslagen nedan är <em>alternativ</em> — de är inte tre byten att göra.
           </div>
           <button style={c.btn(analyzing)} onClick={runTransfers} disabled={analyzing}>{analyzing?"Analyserar...":"✦ Visa mina alternativ"}</button>
