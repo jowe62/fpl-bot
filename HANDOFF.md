@@ -102,9 +102,48 @@ till dålig prestanda förra säsongen). Nya modellen:
 omgång allt planeras mot (`is_next`). Blanda aldrig ihop dem. Båda kastar fel om
 förutsättningen saknas — ingen fallback.
 
+## Aktuell trupp — bokmärkesknappen
+FPL publicerar en omgångs trupp först efter dess deadline, så byten inför nästa
+omgång är osynliga publikt. Verifierat: `/entry/{id}/event/{n}/picks/` ger 404,
+`/entry/{id}/transfers/` ger tom lista, `/my-team/{id}/` ger 403.
+
+**Serversidig inloggning är stängd och ska inte försökas igen.**
+`users.premierleague.com` finns inte längre (NXDOMAIN), efterföljaren
+`account.premierleague.com` svarar 403 på allt även med fullständiga
+webbläsarheaders. Att ta sig förbi skulle kräva att kringgå deras botskydd.
+
+I stället: en bokmärkesknapp John klickar när han är inloggad på FPL. Den läser
+`/api/my-team/` med hans egen session och skickar resultatet i URL-fragmentet,
+som aldrig når någon server. Boten validerar hårt och förkastar hellre än
+gissar — fel antal spelare, fel fälttyper eller fel omgång kastas.
+
+`transfers` ur `/my-team/` ser ut så här:
+`{bank, cost, limit, made, status, value}`. **`limit` är tilldelningen, inte
+återstoden** — rätt formel är `max(0, limit − made)`. Att läsa `limit` rakt av
+gav 1 när FPL:s eget UI sa 0. `value` ger truppvärdet i tiondelar.
+
+Bokmärkeskoden ligger i konversationen, inte i repot. Behöver den göras om:
+den hämtar `/api/my-team/{ID}/` och `/api/bootstrap-static/`, plockar `gw` ur
+`is_next`, skickar `{gw, picks, bank, freeTransfers, raw}` base64-kodat i
+`#team=` till `https://fpl-bot-lovat.vercel.app/`.
+
+## Regler som läses ur API:t, inte hårdkodas
+- **Formation:** `element_types[].squad_min_play` / `squad_max_play`.
+  `bestXI()` är uttömmande över alla lagliga formationer — bevisat optimalt.
+- **Max per klubb:** `game_settings.squad_team_limit`. `buildRecs` kände inte
+  till den och föreslog Maguire med tre MUN-spelare redan i truppen. Spelaren
+  som går ut frigör sin klubbplats, så byten inom samma klubb är lagliga.
+- **Chipfönster:** `bootstrap.chips`.
+
+Lägg inte tillbaka någon av dem som konstant.
+
 ## Flikar i boten
-**Veckan** (default), Kapten, Byten, Fixtures, Chips, Skador — i den ordningen,
-för att det är hur ofta de faktiskt påverkar ett beslut.
+**Veckan** (default), Kapten, Byten, Fixtures, Chips, **Analys**, Skador — i den
+ordningen, för att det är hur ofta de faktiskt påverkar ett beslut. Flikarna bor
+i railen till vänster.
+
+Veckan svarar nu också på **laguppställningen**: vilka som ska in, vilka som
+bänkas och en mening om varför, plus bänkens ordning för auto-bytena.
 
 `Veckan` är startvyn och svarar på vad som ska göras i omgången, i vanliga
 meningar: kaptensbandet, transfer med rak dom (inklusive "gör ingen transfer"),
@@ -141,6 +180,18 @@ handplockade utan stöd. De är inte verifierade mot något.
 `templateXI()` bygger den mest ägda lagliga elvan och startvyn visar hur många av
 dina elva som finns i den. Det är **ägarandel, inget annat** — se öppen tråd 3.
 
+## Diagram — byggda
+Ligger i Analys-fliken. Regler ur §11: en accent per serie, gridlines på 6%
+vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
+
+1. **xP-nedbrytning** — staplad stapel per spelare ur `estimateXp().parts`.
+2. **xP per kommande omgång** — ytgraf, röd punkt vid blank omgång.
+3. **Truppvärde fördelat** — donut, summerar till FPL:s eget värde.
+4. **Poäng per omgång mot ligasnittet** — `history.current[].points` mot
+   `events[].average_entry_score`. Heter så för att top-10k-data inte finns.
+5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
+   chances" ur guidens exempel finns inte i API:t.
+
 ## Utseende — GafferOS designsystem v1.4
 Källa: `FPL Design System.pdf` på Johns skrivbord. Läs den med poppler
 (`pdftotext -layout` för text, `pdftoppm -png -r 110 -y N -H M` för utsnitt) —
@@ -156,12 +207,17 @@ texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till
 - Archivo för text, IBM Plex Mono för varje siffra, alltid `tabular-nums`.
 - 4px-grid i `SP`, radius i `R`.
 
-**Kvar (steg 2):** layout. 264px rail, 12 kolumner, 24px gutters, max 1440,
-brytpunkter 1280 / 900 / 600 där railen fälls till ikoner och sedan bottenrad.
-Största klivet, och det enda där ett avbrott mitt i lämnar boten trasig — ta
-det i en session som får gå hela vägen.
+**Klart (steg 2):** layout. 264px rail med etiketter, kollapsar till 54px
+ikoner under 1280 och ska bli bottenrad under 600. **Mobilläget är INTE
+verifierat** — förhandsgranskningspanelen går inte smalare än 980px. Öppna på
+telefon och kontrollera att railen hamnar i botten.
 
-**Kvar (steg 3):** diagram, se nedan.
+**Klart (steg 3):** diagram, se ovan.
+
+**Planvy och spelarkort:** spelarna radas per position som hos FPL så
+formationen går att läsa av. Lagfärger ligger i `TEAM_COLOR` nycklad på
+`short_name` — FPL exponerar inga färger alls. Uppdatera vid upp- och
+nedflyttning; okända lag får neutral list.
 
 ## Diagram — vad datan bär
 GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
