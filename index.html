@@ -617,100 +617,97 @@ function chipAvailability(bs, history, gw){
 }
 
 // ── Chip advisor ──────────────────────────────────────────────────────────────
-function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
-  const benchXp = bench.reduce((s,p)=>s+estimateXp(p,fm).xp,0);
-  const bestCap = [...starters].filter(p=>p.element_type!==1).sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0];
-  const bestCapXp = bestCap?estimateXp(bestCap,fm).xp:0;
-  const avgTeamFdr3 = starters.reduce((s,p)=>s+avgFdr(p.team,fm,3),0)/starters.length;
+// ── Chip-rådgivning ───────────────────────────────────────────────────────────
+// Ett chip är värt exakt den xP det tillför. Den siffran går att räkna ut, så
+// den här rådgivaren räknar den i stället för att jämföra mot trösklar.
+//
+// Den gamla varianten byggde på handplockade gränser — avgTeamFdr3 > 3.3 gav
+// "KÖR NU", benchXp >= 14 likaså — utan något stöd. Den påstod dessutom att
+// Bench Boost ger 6-8 poäng i snitt, en siffra utan källa. Allt sådant är bort.
+//
+// VARNING som följer med i UI:t: bara nästa omgång vilar på odds. Längre fram
+// går modellen på xG-vägen, som vi mätt är svag så här tidigt på säsongen.
+// Jämförelsen mellan omgångar är därför riktningsgivande, inte exakt.
+const CHIP_HORIZON = 5;
 
-  const dgwTeams = new Set();
-  for (const [tid, fxArr] of Object.entries(fm)) {
-    if (fxArr.filter(f=>f.gw===gw).length>=2) dgwTeams.add(parseInt(tid));
+function chipGainsOverHorizon(starters, bench, fm, gw){
+  const squad=[...starters,...bench];
+  const out=[];
+  for(let g=gw; g<gw+CHIP_HORIZON; g++){
+    const isNext=g===SEASON.nextGw;
+    const xp=p=>estimateXpAt(p,fm,g,isNext).xp;
+    // Bench Boost: bänkens poäng räknas, alltså exakt bänkens xP.
+    const bb=bench.reduce((s,p)=>s+xp(p),0);
+    // Triple Captain: kaptenen räknas tre gånger i stället för två,
+    // alltså ETT extra varv av den bästa spelaren.
+    const tc=Math.max(0,...starters.filter(p=>p.element_type!==1).map(xp));
+    // Free Hit: det du förlorar på spelare utan match den omgången.
+    const blanks=starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===g));
+    const fh=blanks.reduce((s,p)=>s+estimateXpAt(p,fm,gw,false).xp,0);
+    out.push({gw:g, bb, tc, fh, blanks:blanks.length});
   }
-  const hasDGW = dgwTeams.size > 0;
-  const myDGWplayers = [...starters,...bench].filter(p=>dgwTeams.has(p.team));
-  const blankers = starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===gw));
-  const nextDGWgw = (() => {
-    for (let g=gw+1; g<=gw+5; g++)
-      for (const [tid,fxArr] of Object.entries(fm))
-        if (fxArr.filter(f=>f.gw===g).length>=2) return g;
-    return null;
-  })();
-  const gwsLeft = 38 - gw;
+  return out;
+}
+
+function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
+  const horizon=chipGainsOverHorizon(starters,bench,fm,gw);
+  const now=horizon[0];
+  const best=k=>horizon.reduce((a,b)=>b[k]>a[k]?b:a);
+  const line=(k,unit)=>{
+    const b=best(k);
+    return b.gw===gw
+      ? `Bästa läget av de ${CHIP_HORIZON} kommande omgångarna är den här.`
+      : `GW${b.gw} ser bättre ut: ${b[k].toFixed(1)} ${unit} mot ${now[k].toFixed(1)} nu.`;
+  };
+
+  const dgwTeams=new Set();
+  for(const [tid,fxArr] of Object.entries(fm))
+    if(fxArr.filter(f=>f.gw===gw).length>=2) dgwTeams.add(parseInt(tid));
+  const myDGW=[...starters,...bench].filter(p=>dgwTeams.has(p.team));
+  const hurt=[...starters,...bench].filter(p=>isInjured(p)||isDoubtful(p));
+  const avgFdr5=starters.reduce((s,p)=>s+avgFdr(p.team,fm,5),0)/starters.length;
 
   return [
     {
-      id:"wc", name:"Wildcard", icon:"🃏",
-      verdict: avgTeamFdr3>3.3?"KÖR NU": avgTeamFdr3>2.8||gwsLeft<8?"SNART":"AVVAKTA",
-      verdictColor: avgTeamFdr3>3.3?T.good: avgTeamFdr3>2.8||gwsLeft<8?T.warn:T.mut,
-      pros: [
-        avgTeamFdr3>3?"Ditt lag har tuffa fixtures kommande omgångar (snitt FDR "+avgTeamFdr3.toFixed(1)+")":null,
-        gwsLeft<8?"Säsongen lider mot slutet — dags att maximera poängen nu":null,
-        hasDGW?"DGW denna omgång — bra att wildcarda in spelare med dubbla matcher":null,
-        nextDGWgw?"Kommande DGW är GW"+nextDGWgw+" — wildcarda precis innan för max effekt":null,
-      ].filter(Boolean),
-      cons: [
-        avgTeamFdr3<=2.8?"Ditt lag har bra fixturlista just nu (FDR "+avgTeamFdr3.toFixed(1)+") — onödigt att wildcarda":null,
-        gwsLeft>15?"Gott om tid kvar i säsongen — spara till ett bättre läge":null,
-        !hasDGW&&!nextDGWgw?"Ingen DGW i sikte de närmaste 5 omgångarna":null,
-      ].filter(Boolean),
-      tip: nextDGWgw
-        ? `💡 Perfekt tajming: Wildcarda i GW${nextDGWgw-1} och fyll på med spelare som har dubbel i GW${nextDGWgw}.`
-        : "💡 Använd Wildcard när du vill byta 4+ spelare utan poängavdrag. Sikta på 8-9 spelare med bra fixtures kommande 4-5 omgångar."
-    },
-    {
       id:"bb", name:"Bench Boost", icon:"💪",
-      verdict: hasDGW&&benchXp>=14?"KÖR NU": hasDGW&&benchXp>=10?"SNART":"AVVAKTA",
-      verdictColor: hasDGW&&benchXp>=14?T.good: hasDGW&&benchXp>=10?T.warn:T.mut,
-      pros: [
-        hasDGW&&myDGWplayers.length>=3?"Du har "+myDGWplayers.length+" spelare med dubbla matcher denna GW — Bench Boost nu är starkt!":null,
-        hasDGW?"Det är DGW — alla 15 spelares poäng räknas":null,
-        benchXp>=14?"Din bänk förväntas ge "+benchXp.toFixed(1)+" xP — klart godkänt":null,
+      gain:now.bb, unit:"xP",
+      headline:`Ger ${now.bb.toFixed(1)} xP den här omgången`,
+      detail:line("bb","xP"),
+      notes:[
+        `Bänken består av ${bench.map(p=>p.web_name).join(", ")}.`,
+        myDGW.length?`${myDGW.length} av dina spelare har dubbel match den här omgången.`:null,
       ].filter(Boolean),
-      cons: [
-        !hasDGW&&nextDGWgw?"Ingen DGW nu — spara till GW"+nextDGWgw:null,
-        !hasDGW&&!nextDGWgw?"Ingen DGW i sikte. BB under normal GW ger i snitt 6-8 extra poäng — för lite":null,
-        benchXp<10?"Din bänk förväntas bara ge "+benchXp.toFixed(1)+" xP — stärk bänken först":null,
-      ].filter(Boolean),
-      tip: "💡 Bench Boost under DGW är värt ~25-35 extra poäng. Under vanlig GW kanske 8-12. Vänta på DGW."
     },
     {
       id:"tc", name:"Triple Captain", icon:"⚡",
-      verdict: hasDGW&&bestCapXp>=6?"KÖR NU": bestCapXp>=8?"SNART":"AVVAKTA",
-      verdictColor: hasDGW&&bestCapXp>=6?T.good: bestCapXp>=8?T.warn:T.mut,
-      pros: [
-        hasDGW&&bestCap&&dgwTeams.has(bestCap.team)?"PERFEKT: "+bestCap.web_name+" har dubbel match denna GW — TC+DGW ger dubbel effekt!":null,
-        hasDGW?"DGW: Triple Captain kan ge 3× poäng för VARJE match":null,
-        bestCap&&bestCapXp>=6?bestCap.web_name+" förväntas ge "+bestCapXp.toFixed(1)+" xP — med TC ≈ "+(bestCapXp*3).toFixed(0)+" xP":null,
-        bestCap&&nextFdr(bestCap.team,fm)<=2?bestCap.web_name+" möter ett svagt lag (FDR "+nextFdr(bestCap.team,fm)+")":null,
-      ].filter(Boolean),
-      cons: [
-        !hasDGW&&bestCapXp<8?"Din bäste spelare förväntas ge "+bestCapXp.toFixed(1)+" xP — TC ger för lite extra":null,
-        !hasDGW&&nextDGWgw?"Spara TC till GW"+nextDGWgw+" (DGW)":null,
-        gwsLeft>10&&!hasDGW?"Fortfarande "+gwsLeft+" omgångar kvar — vänta på en bättre vecka":null,
-      ].filter(Boolean),
-      player: bestCap,
-      tip: bestCap
-        ? "💡 Bäst case: "+bestCap.web_name+" spelar DGW och returnerar i båda. TC under DGW kan ge 40+ extra poäng."
-        : "💡 Spara TC till en omgång där din bäste spelare har DGW och lätt motstånd."
+      gain:now.tc, unit:"xP",
+      headline:`Ger ${now.tc.toFixed(1)} xP extra den här omgången`,
+      detail:line("tc","xP"),
+      notes:[`Chipet ger ett extra varv av din bästa spelare, inte tre gånger hela laget.`],
     },
     {
       id:"fh", name:"Free Hit", icon:"🎯",
-      verdict: blankers.length>=5?"KÖR NU": blankers.length>=3?"SNART":"AVVAKTA",
-      verdictColor: blankers.length>=5?T.good: blankers.length>=3?T.warn:T.mut,
-      pros: [
-        blankers.length>=3?blankers.length+" av dina startspelare spelar INTE denna GW (BGW) — Free Hit ger ett helt nytt lag för en vecka":null,
-        blankers.length>=3?"Byt in spelare som har matcher utan transferpoäng":null,
-        hasDGW&&blankers.length>=2?"BGW + DGW combo — perfekt för Free Hit":null,
-      ].filter(Boolean),
-      cons: [
-        blankers.length<3&&!hasDGW?"Dina spelare har matcher denna GW ("+blankers.length+" blanks) — Free Hit ger liten fördel nu":null,
-        !hasDGW&&blankers.length<3&&nextDGWgw?"Spara Free Hit till nästa BGW, eller GW"+nextDGWgw:null,
-      ].filter(Boolean),
-      tip: "💡 Free Hit + BGW är klassikern. Ännu bättre: Free Hit på en GW där många lag har DGW."
-    }
+      gain:now.fh, unit:"xP",
+      headline: now.blanks
+        ? `${now.blanks} av dina startspelare saknar match — ${now.fh.toFixed(1)} xP uteblir`
+        : `Alla dina startspelare har match den här omgången`,
+      detail:line("fh","xP"),
+      notes:[`Free Hit lönar sig när många av dina spelare är utan match. Vinsten ovan är vad du förlorar utan chipet, inte vad ett nytt lag skulle ge.`],
+    },
+    {
+      id:"wc", name:"Wildcard", icon:"🃏",
+      gain:null,
+      headline:"Ingen siffra — det här är ett omdöme",
+      detail:"Wildcard byter hela truppen, och värdet beror på vilket lag du skulle bygga i stället. Det kan modellen inte räkna ut åt dig.",
+      notes:[
+        `Ditt lags FDR-snitt kommande ${CHIP_HORIZON} omgångar är ${avgFdr5.toFixed(1)} av 5.`,
+        hurt.length?`${hurt.length} spelare i truppen är skadade eller osäkra.`:`Ingen i truppen är skadad eller osäker.`,
+        `${38-gw} omgångar återstår av säsongen.`,
+      ],
+    },
   ];
 }
+
 
 // ── Live-trupp från bokmärkesknappen ────────────────────────────────────────
 // FPL publicerar en omgångs trupp först efter dess deadline, och /my-team/
@@ -1058,58 +1055,37 @@ function TransferCard({rec}){
 
 function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail}){
   const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
-  const [expanded,setExpanded]=useState("wc");
   return(
     <div>
-      <div style={c.secTitle}>Klicka på ett chip för detaljerad analys</div>
+      <div style={c.secTitle}>Vad varje chip är värt den här omgången</div>
+      <div style={{...c.legendTxt,marginBottom:`${SP[5]}px`,maxWidth:"620px",lineHeight:1.6}}>
+        Siffrorna är den xP chipet tillför, inte en tröskel. Bara GW{SEASON.nextGw}{" "}
+        vilar på odds — jämförelsen mot senare omgångar går på xG-modellen och är
+        riktningsgivande, inte exakt.
+      </div>
       {chips.map(chip=>{
-        const open=expanded===chip.id;
         const av=chipAvail[chip.id]||{available:true,reason:""};
         return(
-          <div key={chip.id} style={{background:T.card,borderRadius:"14px",overflow:"hidden",marginBottom:"10px",border:`.5px solid ${open?T.ink:T.line}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:"12px",padding:"16px",cursor:"pointer",opacity:av.available?1:.5}} onClick={()=>setExpanded(open?null:chip.id)}>
-              <div style={{fontSize:"24px",width:"36px",textAlign:"center"}}>{chip.icon}</div>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:"600",fontSize:"15px",color:T.ink}}>{chip.name}</div>
-                <div style={{fontSize:"11px",color:T.mut,marginTop:"2px"}}>{av.reason}</div>
-              </div>
+          <div key={chip.id} style={{...c.card(),opacity:av.available?1:.5}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:`${SP[3]}px`,flexWrap:"wrap"}}>
+              <span style={{fontSize:"18px"}}>{chip.icon}</span>
+              <span style={{fontSize:"15px",fontWeight:700,color:T.ink}}>{chip.name}</span>
+              <span style={{flex:1}}/>
               {av.available
-                ? <div style={{background:chip.verdictColor===T.good?T.good:chip.verdictColor===T.warn?T.warnBg:T.card,borderRadius:"20px",padding:"5px 14px"}}>
-                    <span style={{fontSize:"12px",fontWeight:"700",color:chip.verdictColor,letterSpacing:".05em"}}>{chip.verdict}</span>
-                  </div>
-                : <div style={{borderRadius:"20px",padding:"5px 14px",border:`1px solid ${T.line}`}}>
-                    <span style={{fontSize:"12px",fontWeight:"600",color:T.mut,letterSpacing:".05em"}}>SLUT</span>
-                  </div>}
-              <span style={{color:T.mut,fontSize:"14px"}}>{open?"▲":"▼"}</span>
+                ? (chip.gain!=null &&
+                    <span className="num" style={{fontSize:"20px",fontWeight:700,color:chip.gain>0?T.brand:T.mut}}>
+                      +{chip.gain.toFixed(1)} xP
+                    </span>)
+                : <span style={{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:600,letterSpacing:".14em",color:T.mut}}>SLUT</span>}
             </div>
-            {open&&(
-              <div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.line}`}}>
-                {chip.player&&(
-                  <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"14px 0 12px",padding:"10px 12px",background:T.warnBg,borderRadius:"10px",border:`1px solid ${T.warn}`}}>
-                    <span style={{fontSize:"18px"}}>⚡</span>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:"13px",fontWeight:"500",color:T.warn}}>{chip.player.web_name}</div>
-                      <div style={{fontSize:"11px",color:T.mut}}>{estimateXp(chip.player,fm).xp.toFixed(1)} xP · {nextOpp(chip.player.team,fm,tb)}</div>
-                    </div>
-                    <div style={{background:fdrBg(nextFdr(chip.player.team,fm)),color:fdrTx(nextFdr(chip.player.team,fm)),borderRadius:"6px",padding:"3px 8px",fontSize:"11px",fontWeight:"500"}}>FDR {nextFdr(chip.player.team,fm)}</div>
-                  </div>
-                )}
-                {chip.pros.length>0&&(
-                  <div style={{marginTop:"14px"}}>
-                    <div style={{fontSize:"11px",color:T.good,fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✓ Argument för att köra nu</div>
-                    {chip.pros.map((pro,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:T.good,borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.good,flexShrink:0}}>+</span>{pro}</div>))}
-                  </div>
-                )}
-                {chip.cons.length>0&&(
-                  <div style={{marginTop:"10px"}}>
-                    <div style={{fontSize:"11px",color:T.bad,fontWeight:"500",textTransform:"uppercase",letterSpacing:".05em",marginBottom:"8px"}}>✗ Argument för att avvakta</div>
-                    {chip.cons.map((con,i)=>(<div key={i} style={{display:"flex",gap:"8px",padding:"7px 10px",background:"#2E211E",borderRadius:"8px",marginBottom:"4px",fontSize:"13px",color:T.ink,lineHeight:"1.5"}}><span style={{color:T.bad,flexShrink:0}}>–</span>{con}</div>))}
-                  </div>
-                )}
-                {chip.pros.length===0&&chip.cons.length===0&&<div style={{padding:"12px 0",fontSize:"13px",color:T.mut}}>Inte tillräckligt med data denna omgång.</div>}
-                <div style={{background:T.card,borderRadius:"10px",padding:"10px 12px",marginTop:"12px",fontSize:"12px",color:T.mut,lineHeight:"1.6"}}>{chip.tip}</div>
+            <div style={{fontSize:"11px",color:T.dim,marginTop:`${SP[1]}px`}}>{av.reason}</div>
+            <div style={{fontSize:"15px",color:T.ink,marginTop:`${SP[3]}px`,lineHeight:1.6}}>{chip.headline}</div>
+            <div style={{fontSize:"13px",color:T.mut,marginTop:`${SP[2]}px`,lineHeight:1.6}}>{chip.detail}</div>
+            {chip.notes.map((n,i)=>(
+              <div key={i} style={{...c.weekFlag(),marginTop:`${SP[2]}px`,fontSize:"13px"}}>
+                <span style={c.weekDot(T.line)}/><span style={c.weekMuted}>{n}</span>
               </div>
-            )}
+            ))}
           </div>
         );
       })}
