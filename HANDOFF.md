@@ -307,7 +307,9 @@ du påstår något om rankningen.
    `selected_by_percent` men inget kaptensfält alls. Premium-sajterna samplar
    tusentals lag. Template-överlappet (se nedan) är den ärliga delmängden; kalla
    det aldrig EO.
-3. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
+3. **Mobilläget under 600px är aldrig verifierat.** CSS:en finns — railen ska bli
+   en bottenrad — men förhandsgranskningspanelen går inte smalare än 980px.
+   Öppna på telefon och kontrollera.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
