@@ -207,6 +207,27 @@ Bästa elvan i var och en av de fem kommande omgångarna. Bygger på
 `estimateXpAt` och samma uttömmande formationssökning som `bestXI`. Blank
 markeras rött, dubbelomgång med ². Kräver 4 omgångar för att vara pålitlig.
 
+## Ligan
+`/api/league?id=<liga>` — standings plus varje medlems `/history/`, som ger
+poäng, rank, bänkpoäng, byten, avdrag och chips per omgång samt antal tidigare
+säsonger. Dessutom `picks` per medlem för de **sex senaste** omgångarna: utan
+det taket blir det medlemmar × 38 anrop i maj. Cachas 30 min.
+`LEAGUE_ID` står överst i index.html.
+
+**Ligans egen `rank` i standings uppdateras bara mellan omgångar.** Placeringen
+per omgång RÄKNAS därför här ur de kumulativa totalerna — annars går det inte
+att rita hur medlemmarna passerar varandra, vilket är hela poängen med
+klätterdiagrammet.
+
+Sex jämförelser: truppöverlapp, kaptensval per omgång, chips kvar i halvan,
+bänkskam, avdrag och form (snitt över tre omgångar).
+
+## Serietabellen
+Härledd ur matchresultaten. **`bootstrap.teams` ser ut att bära en tabell** —
+`played`, `win`, `points`, `position` finns som fält — men de är noll för
+samtliga 20 lag hela säsongen. De underhålls inte. Lita aldrig på dem; räkna ur
+`team_h_score` / `team_a_score`.
+
 ## Eliten — riktig effective ownership
 `/api/elite` hämtar `leagues-classic/314/standings` och sedan varje managers
 `picks`. Ur det faller ägande, startandel, **kaptensandel** och chip-användning,
