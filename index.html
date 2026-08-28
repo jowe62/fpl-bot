@@ -40,6 +40,7 @@
 const { useState, useEffect, useMemo } = React;
 const FPL_PROXY = "/api/fpl";
 const TEAM_ID = 1036486;
+const LEAGUE_ID = 200158;   // GBG Filbyter Bois
 // ── Designtokens ────────────────────────────────────────────────────────────
 // Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
 // och signalfärger som bara används när något faktiskt kräver uppmärksamhet.
@@ -475,6 +476,26 @@ function saveActuals(gw, livePts, ids){
     all[gw]=Object.fromEntries(ids.map(id=>[id, livePts[id]?.total_points ?? 0]));
     localStorage.setItem(ACTUAL_KEY, JSON.stringify(all));
   }catch{}
+}
+
+// ── Serietabellen ───────────────────────────────────────────────────────────
+// bootstrap.teams ser ut att bära en tabell (played, win, points, position)
+// men fälten är NOLL för alla lag hela säsongen — de underhålls inte. Enda
+// vägen är att räkna ur matchresultaten, vilket ändå är exakt.
+function buildLeagueTable(fixtures, teams){
+  const T={};
+  for(const t of teams) T[t.id]={id:t.id, name:t.name, short:t.short_name, sp:0,v:0,o:0,f:0,gm:0,gi:0,p:0, form:[]};
+  for(const f of fixtures){
+    if(!f.finished) continue;
+    const h=T[f.team_h], a=T[f.team_a], hs=f.team_h_score, as=f.team_a_score;
+    if(!h||!a||hs==null||as==null) continue;
+    h.sp++; a.sp++; h.gm+=hs; h.gi+=as; a.gm+=as; a.gi+=hs;
+    if(hs>as){ h.v++; h.p+=3; a.f++; h.form.push("V"); a.form.push("F"); }
+    else if(hs<as){ a.v++; a.p+=3; h.f++; a.form.push("V"); h.form.push("F"); }
+    else { h.o++; a.o++; h.p++; a.p++; h.form.push("O"); a.form.push("O"); }
+  }
+  return Object.values(T).sort((x,y)=>y.p-x.p || (y.gm-y.gi)-(x.gm-x.gi) || y.gm-x.gm)
+    .map((t,i)=>({...t, pos:i+1, diff:t.gm-t.gi}));
 }
 
 // ── Egna svårighetsbetyg ────────────────────────────────────────────────────
@@ -1553,6 +1574,150 @@ function Maturity({needed}){
   return <div style={{...c.legendTxt,color:col,marginBottom:`${SP[4]}px`,lineHeight:1.6,maxWidth:"620px"}}>{m.text}</div>;
 }
 
+// Klätterdiagram: ligaposition per omgång. En linje per medlem, du i lime.
+// Positionen är RÄKNAD ur kumulativa totaler, inte läst ur standings — den
+// uppdateras bara mellan omgångar och kan därför inte visa passeringarna.
+function BumpChart({data,meId}){
+  const gws=data.gameweeks;
+  if(gws.length<2) return <div style={c.weekSub}>Klätterdiagrammet kräver minst två spelade omgångar.</div>;
+  const n=data.members.length, W=Math.max(240, gws.length*90), H=n*34;
+  const x=i=>gws.length>1 ? (i*(W/(gws.length-1))) : 0;
+  const y=pos=>((pos-1)/Math.max(1,n-1))*(H-20)+10;
+  const palette=[T.info,T.alt,T.warn,T.good,"#9B8CFF","#5FD99B"];
+  return(
+    <div style={{overflowX:"auto"}}>
+      <svg width={W+70} height={H+26} style={{display:"block"}}>
+        {gws.map((g,i)=>(
+          <text key={g} x={x(i)} y={H+20} fill={T.dim} fontSize="9" fontFamily="IBM Plex Mono"
+                textAnchor={i===0?"start":i===gws.length-1?"end":"middle"}>GW{g}</text>
+        ))}
+        {data.members.map((m,mi)=>{
+          const pts=gws.map((g,i)=>{
+            const row=data.table.find(t=>t.gw===g)?.rows.find(r=>r.entry===m.entry);
+            return row?.pos!=null ? [x(i), y(row.pos)] : null;
+          }).filter(Boolean);
+          if(!pts.length) return null;
+          const me=m.entry===meId;
+          const col=me?T.brand:palette[mi%palette.length];
+          const d=pts.map((q,i)=>(i?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1)).join(" ");
+          return(
+            <g key={m.entry}>
+              <path d={d} fill="none" stroke={col} strokeWidth={me?2.5:1.5} opacity={me?1:.75}/>
+              {pts.map((q,i)=><circle key={i} cx={q[0]} cy={q[1]} r={me?4:3} fill={col}/>)}
+              <text x={pts[pts.length-1][0]+8} y={pts[pts.length-1][1]+3} fill={col}
+                    fontSize="11" fontWeight={me?700:500}>{m.player?.split(" ")[0]}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function LeagueTab({bs,rawFx}){
+  const [d,setD]=useState(null); const [err,setErr]=useState(null);
+  useEffect(()=>{
+    fetch(`/api/league?id=${LEAGUE_ID}`).then(r=>r.json())
+      .then(j=>{ if(j.error) throw new Error(j.error); setD(j); })
+      .catch(e=>setErr(e.message));
+  },[]);
+  const table=useMemo(()=>rawFx?buildLeagueTable(rawFx,bs.teams):[],[rawFx,bs]);
+
+  return(
+    <div>
+      <div style={c.secTitle}>{d?.league?.name || "Din liga"}</div>
+      {err && <div style={c.errNote}>Kunde inte hämta ligan: {err}</div>}
+      {!d && !err && <div style={c.weekSub}>Hämtar ligan…</div>}
+      {d && <>
+        {d.members.map(m=>{
+          const last=d.table[d.table.length-1]?.rows.find(r=>r.entry===m.entry);
+          const me=m.entry===TEAM_ID;
+          const benchTot=d.table.reduce((s,t)=>s+(t.rows.find(r=>r.entry===m.entry)?.bench||0),0);
+          const hitsTot=d.table.reduce((s,t)=>s+(t.rows.find(r=>r.entry===m.entry)?.hits||0),0);
+          return(
+            <div key={m.entry} style={{...c.card(),borderColor:me?T.brand:T.line}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:`${SP[3]}px`,flexWrap:"wrap"}}>
+                <span className="num" style={{fontSize:"20px",fontWeight:700,color:me?T.brand:T.mut,minWidth:"28px"}}>{m.rank}</span>
+                <div style={{flex:1,minWidth:"160px"}}>
+                  <div style={{fontSize:"15px",fontWeight:700,color:T.ink}}>{m.team}{me && <span style={{color:T.brand,fontSize:"11px",marginLeft:`${SP[2]}px`}}>· du</span>}</div>
+                  <div style={{fontSize:"12px",color:T.dim}}>{m.player}</div>
+                </div>
+                <span className="num" style={{fontSize:"20px",fontWeight:700,color:T.ink}}>{m.total}p</span>
+              </div>
+              <div style={{...c.legendTxt,marginTop:`${SP[3]}px`,lineHeight:1.7}}>
+                Senaste omgången {last?.points ?? "–"} p ·
+                {" "}{benchTot} p kvar på bänken i säsongen ·
+                {" "}{hitsTot>0?`${hitsTot} p i avdrag`:"inga avdrag"} ·
+                {" "}chips: {m.chips.length?m.chips.map(x=>`${x.name} GW${x.event}`).join(", "):"inga spelade"}
+                {m.seasons!=null && <> · {m.seasons} tidigare säsonger</>}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{marginTop:`${SP[10]}px`}}>
+          <div style={c.secTitle}>Klätterdiagram · placering per omgång</div>
+          <BumpChart data={d} meId={TEAM_ID}/>
+        </div>
+
+        <div style={{marginTop:`${SP[10]}px`}}>
+          <div style={c.secTitle}>Poäng per omgång</div>
+          <div style={c.barsWrap}>
+            {d.gameweeks.map(g=>{
+              const rows=d.table.find(t=>t.gw===g)?.rows||[];
+              const max=Math.max(...d.table.flatMap(t=>t.rows.map(r=>r.points||0)),1);
+              return(
+                <div key={g} style={c.barCol}>
+                  <div style={{...c.barPair,gap:"3px"}}>
+                    {rows.map(r=>(
+                      <div key={r.entry} title={`${r.points} p`}
+                        style={{width:"9px",height:`${((r.points||0)/max)*90}px`,
+                          background:r.entry===TEAM_ID?T.brand:T.dim,borderRadius:"2px 2px 0 0"}}/>
+                    ))}
+                  </div>
+                  <span style={c.barLbl}>GW{g}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>}
+
+      <div style={{marginTop:`${SP[10]}px`}}>
+        <div style={c.secTitle}>Serietabellen</div>
+        <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`}}>
+          Räknad ur matchresultaten. FPL:s egen tabelldata i bootstrap är tom hela säsongen.
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
+            <thead><tr>
+              {["#","Lag","Sp","V","O","F","MS","IS","Diff","P"].map((h,i)=>(
+                <th key={h} style={{textAlign:i<2?"left":"right",padding:`0 ${SP[2]}px ${SP[2]}px`,color:T.dim,fontWeight:500}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {table.map(t=>(
+                <tr key={t.id} style={{borderTop:`1px solid ${T.line}`}}>
+                  <td className="num" style={{padding:`${SP[2]}px`,color:T.dim}}>{t.pos}</td>
+                  <td style={{padding:`${SP[2]}px`,color:T.ink,whiteSpace:"nowrap"}}>
+                    <span style={{display:"inline-block",width:"3px",height:"12px",background:teamColor(t.short),marginRight:`${SP[2]}px`,verticalAlign:"middle"}}/>
+                    {t.name}
+                  </td>
+                  {[t.sp,t.v,t.o,t.f,t.gm,t.gi].map((v,i)=>(
+                    <td key={i} className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.mut}}>{v}</td>
+                  ))}
+                  <td className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:t.diff>0?T.good:t.diff<0?T.bad:T.mut}}>{t.diff>0?"+":""}{t.diff}</td>
+                  <td className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.ink,fontWeight:700}}>{t.p}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EliteTab({bs,starters,bench}){
   const [d,setD]=useState(null);
   const [err,setErr]=useState(null);
@@ -1952,6 +2117,7 @@ const TABS=[
   {id:"transfers",label:"Byten",icon:"⇄"},
   {id:"fixtures",label:"Fixtures",icon:"▦"},
   {id:"chips",label:"Chips",icon:"◆"},
+  {id:"league",label:"Ligan",icon:"§"},
   {id:"elite",label:"Eliten",icon:"★"},
   {id:"review",label:"Facit",icon:"✓"},
   {id:"charts",label:"Analys",icon:"◱"},
@@ -2073,7 +2239,7 @@ function App(){
         // Spara prognosen for den omgang vi planerar mot, sa nasta veckas
         // facit kan doma den.
         savePredictions(gw,[...starters,...bench],fm);
-        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        setFplData({bs,entry,fm,tb,gw,rawFx,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError({msg:e.message, status:e.status, path:e.path});}
       finally{setLoading(false);}
     })();
@@ -2205,6 +2371,7 @@ function App(){
       {tab==="fixtures"&&<><FixtureTicker starters={starters} fm={fm} tb={tb}/>
         <RotationPlan squad={[...starters,...bench]} fm={fm} bs={bs} gw={gw} tb={tb}/></>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
+      {tab==="league"&&<LeagueTab bs={bs} rawFx={fplData.rawFx}/>}
       {tab==="elite"&&<EliteTab bs={bs} starters={starters} bench={bench}/>}
       {tab==="review"&&<ReviewTab review={review} tb={tb}/>}
       {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb} bs={bs} history={history}/>}
