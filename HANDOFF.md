@@ -180,6 +180,21 @@ handplockade utan stöd. De är inte verifierade mot något.
 `templateXI()` bygger den mest ägda lagliga elvan och startvyn visar hur många av
 dina elva som finns i den. Det är **ägarandel, inget annat** — se öppen tråd 3.
 
+## Chip-rådgivning
+Ett chip är värt exakt den xP det tillför, och den siffran räknas ut i stället
+för att jämföras mot en tröskel. Bench Boost = bänkens xP. Triple Captain = ett
+extra varv av bästa spelaren. Free Hit = det du förlorar på spelare utan match.
+Varje chip jämförs också mot de fem kommande omgångarna.
+
+**Wildcard får ingen siffra** och ska inte ges en. Det byter hela truppen och
+värdet beror på vilket lag man skulle bygga i stället — modellen kan inte räkna
+ut det. Den redovisar FDR-snitt, skadade och omgångar kvar, och säger att
+beslutet är ett omdöme.
+
+De gamla trösklarna (`avgTeamFdr3 > 3.3`, `benchXp >= 14`) var handplockade utan
+stöd, och en "för"-punkt påstod att Bench Boost ger 6–8 poäng i snitt utan
+källa. Återinför inget av det.
+
 ## Diagram — byggda
 Ligger i Analys-fliken. Regler ur §11: en accent per serie, gridlines på 6%
 vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
@@ -287,16 +302,12 @@ du påstår något om rankningen.
 1. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
    klart mest arbete: en optimering över budget, formation, fria transfers och
    avdrag över N omgångar. Inte påbörjad.
-2. **Chip-rådgivarens trösklar.** `avgTeamFdr3 > 3.3` → "KÖR NU" och liknande är
-   handplockade utan stöd. Tillgängligheten är korrekt, men rådet om *när* ett
-   chip ska spelas vilar på gissade siffror. Enda delen av boten som fortfarande
-   uttalar sig med självförtroende utan täckning.
-3. **Äkta effective ownership går inte att bygga** från det publika API:t. Den
+2. **Äkta effective ownership går inte att bygga** från det publika API:t. Den
    kräver kaptensandelar och FPL exponerar inga — `bootstrap.elements` har
    `selected_by_percent` men inget kaptensfält alls. Premium-sajterna samplar
    tusentals lag. Template-överlappet (se nedan) är den ärliga delmängden; kalla
    det aldrig EO.
-4. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
+3. Gammalt Vercel-projekt `project-h5be9` (gamla proxyn) kan raderas — inget pekar dit längre.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
