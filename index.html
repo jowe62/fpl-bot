@@ -450,6 +450,75 @@ function XpSparkline({p,fm,n=5}){
   );
 }
 
+// Poäng per omgång mot ligasnittet. Guidens exempel jämför mot top 10k — den
+// datan finns inte i FPL:s API, men events[].average_entry_score gör det.
+// Diagrammet heter därför det det är.
+function PointsPerGw({history,bs}){
+  const rows=(history.current||[]).map(e=>({
+    gw:e.event, you:e.points,
+    avg:(bs.events.find(x=>x.id===e.event)||{}).average_entry_score ?? null,
+  })).filter(r=>r.avg!=null);
+  if(!rows.length) return null;
+  const max=Math.max(...rows.flatMap(r=>[r.you,r.avg]),1);
+  return(
+    <div>
+      <div style={c.chartLegend}>
+        <span style={c.legendTxt}><i style={c.legendDot(T.brand)}/>Du</span>
+        <span style={c.legendTxt}><i style={c.legendDot(T.dim)}/>Snittet</span>
+      </div>
+      <div style={c.barsWrap}>
+        {rows.map(r=>{
+          const diff=r.you-r.avg;
+          const col=diff>2?T.good:diff<-2?T.bad:T.mut;
+          return(
+            <div key={r.gw} style={c.barCol}>
+              <span className="num" style={{...c.barVal,color:col}}>{r.you}</span>
+              <div style={c.barPair}>
+                <div style={{width:"10px",height:`${(r.you/max)*90}px`,background:T.brand,borderRadius:"2px 2px 0 0"}}/>
+                <div style={{width:"10px",height:`${(r.avg/max)*90}px`,background:T.dim,borderRadius:"2px 2px 0 0"}}/>
+              </div>
+              <span style={c.barLbl}>GW{r.gw}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Hotanalys. Guidens exempel visar "shots in box" och "big chances" — de
+// finns inte i FPL:s API. Det som finns är xG, xA, threat och creativity,
+// och det är vad diagrammet visar. En accent per serie enligt §11.
+function ThreatBreakdown({p,squad}){
+  const metrics=[
+    {k:"xG",          get:x=>num(x.expected_goals),   col:T.brand},
+    {k:"xA",          get:x=>num(x.expected_assists), col:T.info},
+    {k:"Hot",         get:x=>num(x.threat),           col:T.alt},
+    {k:"Kreativitet", get:x=>num(x.creativity),       col:T.warn},
+  ];
+  return(
+    <div>
+      <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`}}>
+        {p.web_name} — staplarna är relativa till din trupps högsta värde per mått.
+      </div>
+      {metrics.map(m=>{
+        const v=m.get(p), max=Math.max(...squad.map(m.get),0.001);
+        return(
+          <div key={m.k} style={{marginBottom:`${SP[3]}px`}}>
+            <div style={c.chartRow}>
+              <span style={c.chartName}>{m.k}</span>
+              <span className="num" style={c.chartVal(m.col)}>{v.toFixed(2)}</span>
+            </div>
+            <div style={c.stackTrack}>
+              <div style={{width:`${Math.min(100,(v/max)*100)}%`,background:m.col,height:"100%"}}/>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Optimal startelva ───────────────────────────────────────────────────────
 // Maximerar summan av xP under FPL:s formationsregler. Reglerna läses ur
 // bootstrap (element_types.squad_min_play / squad_max_play) i stället för att
@@ -836,6 +905,11 @@ const c={
   chartLegend:{display:"flex",gap:`${SP[4]}px`,flexWrap:"wrap",marginBottom:`${SP[4]}px`},
   legendDot:(col)=>({display:"inline-block",width:"8px",height:"8px",borderRadius:"2px",background:col,marginRight:`${SP[2]}px`}),
   legendTxt:{fontSize:"11px",color:T.mut},
+  barsWrap:{display:"flex",alignItems:"flex-end",gap:`${SP[3]}px`,flexWrap:"wrap"},
+  barCol:{display:"flex",flexDirection:"column",alignItems:"center",gap:`${SP[1]}px`},
+  barVal:{fontSize:"11px",fontWeight:600},
+  barPair:{display:"flex",alignItems:"flex-end",gap:"2px",height:"90px"},
+  barLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"9px",color:T.dim},
   // Spelarkort — GafferOS §08: identitet plus statistik, raised surface.
   lineupGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:`${SP[2]}px`,marginTop:`${SP[4]}px`},
   lineupCard:(inXI)=>({display:"flex",alignItems:"center",gap:`${SP[2]}px`,background:inXI?T.card:T.surface,border:`1px solid ${inXI?T.lineStrong:T.line}`,borderRadius:`${R.card}px`,padding:`${SP[3]}px ${SP[3]}px`,opacity:inXI?1:.75}),
@@ -1199,7 +1273,7 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   );
 }
 
-function ChartsTab({starters,bench,fm,tb}){
+function ChartsTab({starters,bench,fm,tb,bs,history}){
   const squad=[...starters,...bench];
   const byXp=[...starters].sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp);
   // Truppvärde per position — donut i systemets accenter.
@@ -1232,6 +1306,16 @@ function ChartsTab({starters,bench,fm,tb}){
           </div>
           {byXp.slice(0,8).map(p=><XpSparkline key={p.id} p={p} fm={fm}/>)}
         </div>
+      </div>
+
+      <div style={{marginTop:`${SP[10]}px`}}>
+        <div style={c.secTitle}>Poäng per omgång mot ligasnittet</div>
+        <PointsPerGw history={history} bs={bs}/>
+      </div>
+
+      <div style={{marginTop:`${SP[10]}px`}}>
+        <div style={c.secTitle}>Hotanalys · din vassaste startspelare</div>
+        <ThreatBreakdown p={byXp[0]} squad={squad}/>
       </div>
 
       <div style={{marginTop:`${SP[10]}px`}}>
@@ -1447,7 +1531,7 @@ function App(){
 
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
         const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
-        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError(e.message);}
       finally{setLoading(false);}
     })();
@@ -1464,7 +1548,7 @@ function App(){
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
   if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,live,liveError}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,history,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -1558,7 +1642,7 @@ function App(){
       {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
       {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
-      {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb}/>}
+      {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb} bs={bs} history={history}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
       </main>
