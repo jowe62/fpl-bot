@@ -98,9 +98,21 @@ const TEAM_COLOR = {
 const teamColor = sn => TEAM_COLOR[sn] || "#6C7684";
 const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
 
+// FPL blockerar med jämna mellanrum anrop från moln-IP:n. Det är känt, det är
+// tillfälligt, och proxyn skickar webbläsarheaders just för att minska det —
+// men det händer ändå. Felet bär därför med sig både status och vilken
+// resurs som föll, så UI:t kan säga vad som hänt i stället för "HTTP 403".
 const fplFetch = path =>
   fetch(FPL_PROXY + "?path=" + encodeURIComponent(path))
-    .then(r => { if (!r.ok) throw new Error("HTTP "+r.status); return r.json(); });
+    .then(r => {
+      if (!r.ok) {
+        const e = new Error("HTTP " + r.status);
+        e.status = r.status;
+        e.path = path;
+        throw e;
+      }
+      return r.json();
+    });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ODDS PLUGIN — hämtar riktiga odds via din Vercel-proxy (/api/odds).
@@ -1519,7 +1531,7 @@ function App(){
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
         const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
         setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
-      }catch(e){setError(e.message);}
+      }catch(e){setError({msg:e.message, status:e.status, path:e.path});}
       finally{setLoading(false);}
     })();
   },[]);
@@ -1534,7 +1546,27 @@ function App(){
   }
 
   if(loading)return<div style={{padding:"3rem",textAlign:"center",color:T.mut,fontFamily:"system-ui"}}><div style={{fontSize:"32px",marginBottom:"12px"}}>⚽</div><div>Hämtar ditt lag...</div></div>;
-  if(error)return<div style={c.error}>Kunde inte hämta FPL-data: {error}</div>;
+  if(error)return(
+    <div style={c.root}>
+      <div style={{maxWidth:"620px",margin:"0 auto",padding:`${SP[10]}px ${SP[5]}px`}}>
+        <div style={c.weekKicker}>Ingen data</div>
+        <div style={c.weekLead}>
+          {error.status===403 ? "FPL blockerar anropet just nu" : "Kunde inte hämta FPL-data"}
+        </div>
+        <div style={c.weekSub}>
+          {error.status===403
+            ? <>FPL stänger med jämna mellanrum ute anrop som kommer från molnservrar,
+                och boten körs på Vercel. Det är tillfälligt och brukar släppa inom
+                några minuter. Ingenting är sönder och inga data har gått förlorade.</>
+            : <>Anropet mot FPL misslyckades med {error.msg}.</>}
+          {error.path && <> Resursen som föll var <code style={{color:T.mut}}>{error.path}</code>.</>}
+        </div>
+        <div style={{marginTop:`${SP[5]}px`,maxWidth:"280px"}}>
+          <button style={c.btn(false)} onClick={()=>location.reload()}>Försök igen</button>
+        </div>
+      </div>
+    </div>
+  );
   const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,history,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
