@@ -354,6 +354,53 @@ function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
 function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
 function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 
+// ── Optimal startelva ───────────────────────────────────────────────────────
+// Maximerar summan av xP under FPL:s formationsregler. Reglerna läses ur
+// bootstrap (element_types.squad_min_play / squad_max_play) i stället för att
+// hårdkodas, så de följer med om FPL ändrar dem.
+//
+// Uttömmande över alla lagliga formationer, och inom varje position räcker det
+// att ta de N högsta — så svaret är bevisat optimalt, inte en heuristik.
+function bestXI(squad, fm, elementTypes){
+  const byPos={1:[],2:[],3:[],4:[]};
+  for(const p of squad) if(byPos[p.element_type]) byPos[p.element_type].push(p);
+  const xpOf=new Map(squad.map(p=>[p.id,estimateXp(p,fm).xp]));
+  for(const k of Object.keys(byPos)) byPos[k].sort((a,b)=>xpOf.get(b.id)-xpOf.get(a.id));
+  const lim=Object.fromEntries(elementTypes.map(t=>[t.id,{min:t.squad_min_play,max:t.squad_max_play}]));
+  if(!lim[1]||!byPos[1].length) return null;
+  let best=null;
+  for(let d=lim[2].min; d<=lim[2].max; d++)
+    for(let m=lim[3].min; m<=lim[3].max; m++)
+      for(let f=lim[4].min; f<=lim[4].max; f++){
+        if(1+d+m+f!==11) continue;
+        if(byPos[2].length<d||byPos[3].length<m||byPos[4].length<f) continue;
+        const xi=[...byPos[1].slice(0,1),...byPos[2].slice(0,d),...byPos[3].slice(0,m),...byPos[4].slice(0,f)];
+        const total=xi.reduce((s,p)=>s+xpOf.get(p.id),0);
+        if(!best||total>best.total) best={total,xi,formation:`${d}-${m}-${f}`};
+      }
+  if(!best) return null;
+  const inXI=new Set(best.xi.map(p=>p.id));
+  // Bänkordning styr auto-bytena: högst xP först bland utespelarna.
+  // Reservmålvakten har egen plats och konkurrerar inte om den ordningen.
+  const rest=squad.filter(p=>!inXI.has(p.id));
+  best.benchGk=rest.filter(p=>p.element_type===1);
+  best.bench=rest.filter(p=>p.element_type!==1).sort((a,b)=>xpOf.get(b.id)-xpOf.get(a.id));
+  best.xpOf=xpOf;
+  return best;
+}
+
+// Varför en spelare byts in eller ut. Grundas i det som faktiskt skiljer dem
+// åt — skada väger tyngst, annars matchen och xP-skillnaden.
+function lineupReason(inn, out, fm, tb, xpOf){
+  if(isInjured(out)) return `${out.web_name} spelar inte.`;
+  if(isDoubtful(out)) return `${out.web_name} är osäker — ${(xMins(out)*100).toFixed(0)}% speltid.`;
+  const f=(fm[inn.team]||[]).find(x=>x.gw===SEASON.nextGw);
+  const diff=(xpOf.get(inn.id)-xpOf.get(out.id)).toFixed(1);
+  return f
+    ? `${inn.web_name} möter ${tb[f.oppId]?.short_name} ${f.home?"hemma":"borta"} och ligger ${diff} xP över.`
+    : `${inn.web_name} ligger ${diff} xP över.`;
+}
+
 // ── Template-XI ───────────────────────────────────────────────────────────────
 // Den elva som flest managers faktiskt har. Ager du samma spelare som alla
 // andra rör du dig med fältet: du rasar inte när de blankar, men du klättrar
@@ -592,6 +639,7 @@ const c={
   tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.brand:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
 
   squad:{marginBottom:"28px"},
+  staleNote:{fontSize:"12px",lineHeight:1.6,color:T.dim,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.line}`,maxWidth:"640px"},
   sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
   bLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,margin:`${SP[5]}px 0 ${SP[3]}px`},
   chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:`${SP[2]}px`,background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,padding:`${SP[2]}px ${SP[3]}px`,margin:`0 ${SP[2]}px ${SP[2]}px 0`,fontSize:"13.5px",color:T.ink,opacity:bench?.55:1}),
@@ -609,6 +657,12 @@ const c={
   weekFlag:(kind)=>({display:"flex",gap:"9px",alignItems:"flex-start",fontSize:"14px",lineHeight:1.6,color:T.ink,marginBottom:"9px"}),
   weekDot:(col)=>({width:"6px",height:"6px",borderRadius:"50%",background:col,marginTop:"7px",flexShrink:0}),
   weekMuted:{color:T.mut},
+  // Spelarkort — GafferOS §08: identitet plus statistik, raised surface.
+  lineupGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:`${SP[2]}px`,marginTop:`${SP[4]}px`},
+  lineupCard:(inXI)=>({display:"flex",alignItems:"center",gap:`${SP[2]}px`,background:inXI?T.card:T.surface,border:`1px solid ${inXI?T.lineStrong:T.line}`,borderRadius:`${R.card}px`,padding:`${SP[3]}px ${SP[3]}px`,opacity:inXI?1:.75}),
+  lineupName:{flex:1,fontSize:"14px",fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"},
+  lineupXp:(v)=>({fontSize:"13.5px",fontWeight:600,color:xpColor(v)}),
+  benchNo:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,color:T.dim,width:"14px",textAlign:"center"},
   weekLink:{background:"none",border:"none",padding:0,margin:0,font:"inherit",fontSize:"13.5px",fontWeight:600,color:T.brand,textDecoration:"none",borderBottom:`1px solid ${T.brand}`,paddingBottom:"1px",cursor:"pointer"},
 
   card:(t)=>({background:T.card,borderRadius:`${R.card}px`,padding:`${SP[5]}px`,marginBottom:`${SP[3]}px`,border:`1px solid ${T.line}`}),
@@ -770,6 +824,12 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   const benchDead = bench.filter(p=>isInjured(p)).length;
 
   const chipsLeft = Object.entries(chipAvail).filter(([,a])=>a.available).length;
+  const squad = useMemo(()=>[...starters,...bench],[starters,bench]);
+  const xi = useMemo(()=>bestXI(squad,fm,bs.element_types),[squad,fm,bs]);
+  // Vad som skiljer den optimala elvan från den du har uppställd nu.
+  const nowIds = new Set(starters.map(p=>p.id));
+  const bringIn = xi ? xi.xi.filter(p=>!nowIds.has(p.id)) : [];
+  const dropOut = xi ? starters.filter(p=>!xi.xi.some(x=>x.id===p.id)) : [];
   const tmpl = useMemo(()=>templateXI(bs.elements),[bs]);
   const tmplIds = new Set(tmpl.map(p=>p.id));
   const overlap = starters.filter(p=>tmplIds.has(p.id)).length;
@@ -791,6 +851,51 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
         <div style={{marginTop:"10px"}}>
           <button style={c.weekLink} onClick={()=>setTab("captain")}>Se hela rankningen</button>
         </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Laguppställning</div>
+        {!xi ? <div style={c.weekLead}>Kunde inte räkna fram en laglig elva.</div> : <>
+          <div style={c.weekLead}>
+            {bringIn.length===0
+              ? <>Din elva är redan den bästa</>
+              : <>Byt in {bringIn.map(p=>p.web_name).join(" och ")}</>}
+          </div>
+          <div style={c.weekSub}>
+            Formation {xi.formation} · {xi.total.toFixed(1)} xP totalt.
+            {bringIn.length===0
+              ? <> Ingen annan laglig uppställning av din trupp ger mer.</>
+              : <> Bänka {dropOut.map(p=>p.web_name).join(" och ")}.</>}
+          </div>
+          {bringIn.map((p,i)=>(
+            <div key={p.id} style={{...c.weekFlag(),marginTop:i===0?`${SP[4]}px`:0}}>
+              <span style={c.weekDot(T.brand)}/>
+              <span>{lineupReason(p,dropOut[i]||dropOut[0],fm,tb,xi.xpOf)}</span>
+            </div>
+          ))}
+          <div style={c.lineupGrid}>
+            {xi.xi.map(p=>(
+              <div key={p.id} style={c.lineupCard(true)}>
+                <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+                <span style={c.lineupName}>{p.web_name}</span>
+                <span className="num" style={c.lineupXp(xi.xpOf.get(p.id))}>{xi.xpOf.get(p.id).toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{...c.sLbl,marginTop:`${SP[5]}px`}}>Bänk · i ordning för auto-byten</div>
+          <div style={c.lineupGrid}>
+            {[...xi.benchGk,...xi.bench].map((p,i)=>(
+              <div key={p.id} style={c.lineupCard(false)}>
+                <span style={c.benchNo}>{p.element_type===1?"MV":i}</span>
+                <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+                <span style={c.lineupName}>{p.web_name}</span>
+                <span className="num" style={c.lineupXp(xi.xpOf.get(p.id))}>{xi.xpOf.get(p.id).toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+        </>}
       </div>
 
       <hr style={c.weekRule}/>
@@ -1078,7 +1183,13 @@ function App(){
       </div>
 
       <div style={c.squad}>
-        <div style={c.sLbl}>Startspelare (ditt lag i GW{squadGw})</div>
+        <div style={c.sLbl}>Startspelare · ditt lag i GW{squadGw}</div>
+        <div style={c.staleNote}>
+          FPL publicerar en omgångs trupp först när dess deadline passerat. Har du
+          gjort byten inför GW{gw} syns de inte här, och då kan både truppen ovan,
+          antalet fria transfers och bytesförslagen gälla ett lag du redan ändrat.
+          Efter deadline rättar det sig av sig självt.
+        </div>
         <div>{starters.map(p=><PlayerChip key={p.id} p={p} bench={false} fm={fm}/>)}</div>
         <div style={c.bLbl}>Bänk</div>
         <div>{bench.map(p=><PlayerChip key={p.id} p={p} bench={true} fm={fm}/>)}</div>
