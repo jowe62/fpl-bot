@@ -400,6 +400,74 @@ function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
 function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
 function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 
+// Modellens egna prognoser sparas före deadline så de går att döma i
+// efterhand. Utan detta kan boten aldrig visa om den har rätt, och en modell
+// som slipper facit är precis en sådan bot som CLAUDE.md varnar för.
+const PRED_KEY = "gafferos:predictions";
+function savePredictions(gw, squad, fm){
+  try{
+    const all = JSON.parse(localStorage.getItem(PRED_KEY) || "{}");
+    // Skriv aldrig över en prognos i efterhand — då blir facit meningslöst.
+    if(all[gw]) return;
+    all[gw] = Object.fromEntries(squad.map(p=>[p.id, +estimateXp(p,fm).xp.toFixed(2)]));
+    localStorage.setItem(PRED_KEY, JSON.stringify(all));
+  }catch{}
+}
+function readPredictions(gw){
+  try{ return (JSON.parse(localStorage.getItem(PRED_KEY)||"{}"))[gw] || null; }
+  catch{ return null; }
+}
+
+// ── Facit: vad som faktiskt hände ───────────────────────────────────────────
+// Allt här bygger på utfall, inte tyckande. /event/{gw}/live/ ger varje
+// spelares faktiska poäng för omgången, picks ger truppen och kaptenen.
+//
+// Nyans som de flesta slarvar med: poäng på bänken är INTE automatiskt
+// förlorade. De blir tillgängliga bara när en startspelare uteblir och
+// auto-bytet går in. Spelade alla elva fanns bänkpoängen aldrig att hämta,
+// och att skuldbelägga dem vore fel.
+function buildReview(picks, livePts, pb, tb, event, predicted){
+  const xi=picks.picks.filter(x=>x.position<=11);
+  const bench=picks.picks.filter(x=>x.position>11);
+  const cap=picks.picks.find(x=>x.is_captain);
+  const pts=id=>livePts[id]?.total_points ?? 0;
+  const mins=id=>livePts[id]?.minutes ?? 0;
+
+  const capPts=cap?pts(cap.element):0;
+  const ranked=xi.map(x=>({p:pb[x.element],pts:pts(x.element)})).sort((a,b)=>b.pts-a.pts);
+  const bestXI=ranked[0];
+  const capLoss=bestXI?bestXI.pts-capPts:0;
+
+  const benchPts=bench.reduce((s,x)=>s+pts(x.element),0);
+  const blanked=xi.filter(x=>mins(x.element)===0);
+
+  const eh=picks.entry_history;
+  return {
+    gw:eh.event, points:eh.points, avg:event?.average_entry_score ?? null,
+    best:event?.highest_score ?? null, rank:eh.overall_rank, pct:eh.percentile_rank,
+    chip:picks.active_chip,
+    cap:cap?pb[cap.element]:null, capPts, bestXI, capLoss,
+    benchPts, benchNames:bench.map(x=>({p:pb[x.element],pts:pts(x.element)})),
+    blanked:blanked.map(x=>pb[x.element]),
+    transfers:eh.event_transfers, transferCost:eh.event_transfers_cost,
+    accuracy: buildAccuracy(picks, livePts, pb, predicted),
+  };
+}
+
+// Hur nara gick modellen? Medelavvikelsen i poang per spelare, plus var den
+// sag mest fel. Bara spelare vi faktiskt hade en prognos for raknas.
+function buildAccuracy(picks, livePts, pb, predicted){
+  if(!predicted) return null;
+  const rows=picks.picks
+    .filter(x=>predicted[x.element]!=null)
+    .map(x=>({p:pb[x.element], pred:predicted[x.element], act:livePts[x.element]?.total_points ?? 0}))
+    .map(r=>({...r, err:r.act-r.pred}));
+  if(!rows.length) return null;
+  const mae=rows.reduce((s,r)=>s+Math.abs(r.err),0)/rows.length;
+  const sorted=[...rows].sort((a,b)=>b.err-a.err);
+  return {n:rows.length, mae, over:sorted[0], under:sorted[sorted.length-1]};
+}
+
 // ── Diagram ─────────────────────────────────────────────────────────────────
 // GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
 // märk ytterlägena i stället för varje tick.
@@ -1272,6 +1340,80 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   );
 }
 
+function ReviewTab({review:r,tb}){
+  if(!r) return <div style={c.weekSub}>Ingen spelad omgång att gå igenom än.</div>;
+  const vsAvg = r.avg!=null ? r.points-r.avg : null;
+  // Bänkpoäng var bara atkomliga om nagon startspelare uteblev.
+  const benchWasReachable = r.blanked.length>0;
+  return(
+    <div>
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Facit · GW{r.gw}</div>
+        <div style={c.weekLead}>
+          {r.points} poäng{vsAvg!=null && <>, {vsAvg>=0?"över":"under"} snittet</>}
+        </div>
+        <div style={c.weekSub}>
+          {r.avg!=null && <>Snittet var {r.avg} och bästa laget i världen fick {r.best}. </>}
+          Du ligger på plats {r.rank?.toLocaleString("sv-SE")}, vilket är percentil {r.pct}.
+          {r.chip && <> Du spelade {r.chip}.</>}
+          {r.transfers>0 && <> {r.transfers} byte{r.transfers>1?"n":""}{r.transferCost>0?`, kostnad −${r.transferCost}`:", utan kostnad"}.</>}
+        </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Kaptensvalet</div>
+        {r.cap ? <>
+          <div style={c.weekLead}>
+            {r.capLoss>0 ? <>{r.capLoss} poäng låg i ett annat val</> : <>Du valde rätt kapten</>}
+          </div>
+          <div style={c.weekSub}>
+            {r.cap.web_name} gav {r.capPts} poäng.
+            {r.capLoss>0
+              ? <> Bäst i din elva var {r.bestXI.p.web_name} med {r.bestXI.pts}. Bandet ger ett extra
+                  varv av spelaren, så skillnaden blev {r.capLoss} poäng.</>
+              : <> Ingen i din elva gav mer.</>}
+          </div>
+        </> : <div style={c.weekSub}>Ingen kapten registrerad.</div>}
+      </div>
+
+      {r.accuracy && <>
+        <hr style={c.weekRule}/>
+        <div style={c.weekBlock}>
+          <div style={c.weekKicker}>Hur nära gick modellen</div>
+          <div style={c.weekLead}>
+            {r.accuracy.mae.toFixed(1)} poäng fel i snitt
+          </div>
+          <div style={c.weekSub}>
+            Räknat på {r.accuracy.n} spelare vi hade en prognos för.
+            {" "}Mest underskattad: {r.accuracy.over.p.web_name}, {r.accuracy.over.pred.toFixed(1)} xP
+            men {r.accuracy.over.act} poäng.
+            {" "}Mest överskattad: {r.accuracy.under.p.web_name}, {r.accuracy.under.pred.toFixed(1)} xP
+            men {r.accuracy.under.act} poäng.
+          </div>
+        </div>
+      </>}
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Bänken</div>
+        <div style={c.weekLead}>
+          {r.benchPts} poäng på bänken
+        </div>
+        <div style={c.weekSub}>
+          {r.benchNames.map(b=>`${b.p.web_name} ${b.pts}`).join(" · ")}.
+          {benchWasReachable
+            ? <> {r.blanked.length} startspelare uteblev, så auto-bytena var i spel.</>
+            : <> Alla elva spelade, så de poängen fanns aldrig att hämta — bänken är
+                ingen missad chans den här gången.</>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChartsTab({starters,bench,fm,tb,bs,history}){
   const squad=[...starters,...bench];
   const byXp=[...starters].sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp);
@@ -1433,6 +1575,7 @@ const TABS=[
   {id:"transfers",label:"Byten",icon:"⇄"},
   {id:"fixtures",label:"Fixtures",icon:"▦"},
   {id:"chips",label:"Chips",icon:"◆"},
+  {id:"review",label:"Facit",icon:"✓"},
   {id:"charts",label:"Analys",icon:"◱"},
   {id:"injuries",label:"Skador",icon:"!"},
 ];
@@ -1481,7 +1624,12 @@ function App(){
         if(!next)throw new Error("FPL har ingen kommande omgång (is_next saknas) — går inte att ge råd för nästa GW.");
         const gw=next.id;
         SEASON.nextGw=gw;
-        const [picks,rawFx,history]=await Promise.all([fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),fplFetch("/fixtures/"),fplFetch(`/entry/${TEAM_ID}/history/`)]);
+        const [picks,rawFx,history,liveGw]=await Promise.all([
+          fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),
+          fplFetch("/fixtures/"),
+          fplFetch(`/entry/${TEAM_ID}/history/`),
+          fplFetch(`/event/${squadGw}/live/`),
+        ]);
         let freeTransfers=freeTransfersFor(history,gw);
         const chipAvail=chipAvailability(bs,history,gw);
         const fm={};
@@ -1528,9 +1676,16 @@ function App(){
         // finns inget att kalibrera mot och proxyn får stå som den är.
         SEASON.attackScale = haveOdds ? calibrateAttackScale(bs.elements,fm) : 1;
 
+        // Facit för senast spelade omgång.
+        const livePts=Object.fromEntries((liveGw.elements||[]).map(e=>[e.id,e.stats]));
+        const review=buildReview(picks,livePts,pb,tb,bs.events.find(e=>e.id===squadGw),readPredictions(squadGw));
+
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
         const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
-        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        // Spara prognosen for den omgang vi planerar mot, sa nasta veckas
+        // facit kan doma den.
+        savePredictions(gw,[...starters,...bench],fm);
+        setFplData({bs,entry,fm,tb,gw,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError({msg:e.message, status:e.status, path:e.path});}
       finally{setLoading(false);}
     })();
@@ -1567,7 +1722,7 @@ function App(){
       </div>
     </div>
   );
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,history,live,liveError}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,history,review,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -1661,6 +1816,7 @@ function App(){
       {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
       {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
+      {tab==="review"&&<ReviewTab review={review} tb={tb}/>}
       {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb} bs={bs} history={history}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
