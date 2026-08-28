@@ -5,11 +5,11 @@
   html,body{margin:0;padding:0;background:#07090C;-webkit-font-smoothing:antialiased;}
   *{box-sizing:border-box;}
   /* Varje siffra sätts med tabulära figurer så kolumner ligger stilla och en
-     ändrad ställning aldrig får raden att hoppa. GafferOS §02. */
+     ändrad ställning aldrig får raden att hoppa. GlennOS §02. */
   .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
   button:focus-visible{outline:2px solid #C8FF2E;outline-offset:2px;}
 
-  /* GafferOS §13 — brytpunkter 1280 / 900 / 600.
+  /* GlennOS §13 — brytpunkter 1280 / 900 / 600.
      Rail 264px med etiketter, sedan ikoner, sedan bottenrad. */
   .shell{display:grid;grid-template-columns:264px minmax(0,1fr);gap:32px;
          max-width:1440px;margin:0 auto;padding:24px;min-height:100vh;}
@@ -43,7 +43,7 @@ const TEAM_ID = 1036486;
 // ── Designtokens ────────────────────────────────────────────────────────────
 // Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
 // och signalfärger som bara används när något faktiskt kräver uppmärksamhet.
-// GafferOS designsystem v1.4. Nära svart canvas med lagrade ytor. Lime är
+// GlennOS designsystem v1.4. Nära svart canvas med lagrade ytor. Lime är
 // ENDA varumärkesaccenten och reserveras för primär åtgärd, aktivt läge och
 // användarens eget lag. Grönt och rött används bara för verklig numerisk
 // riktning — aldrig som dekoration.
@@ -64,7 +64,7 @@ const T = {
 };
 
 // Fixtursvårighet 1–5. Trean stannar neutralt grå så en rad medelmatcher
-// läser som visuell tystnad — GafferOS §01.
+// läser som visuell tystnad — GlennOS §01.
 const FDR_RAMP = {
   1:{bg:"rgba(36,208,122,.18)", fg:"#24D07A"},
   2:{bg:"rgba(36,208,122,.10)", fg:"#5FD99B"},
@@ -185,7 +185,7 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
 // Antal spelade omgångar. Sätts när bootstrap laddats. xMins behöver veta hur
 // många chanser en spelare HAFT att spela, annars går andelen inte att räkna.
-const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1 };
+const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1, ownFdr: null, selfCal: {factor:1, gws:0} };
 
 // Lagets insläppta xG per 90, krympt mot ligasnittet efter hur många omgångar
 // som hunnit spelas — samma disciplin som xMins.
@@ -358,9 +358,11 @@ function estimateXpAt(p,fm,gw,isNextGw){
   }
   const apptPts = apptPer*fixtures.length;
   const bonus = bonusPer*fixtures.length;
+  // Självkalibreringen är 1 tills det finns minst tre mätta omgångar.
+  const cal = SEASON.selfCal?.factor ?? 1;
   return {
-    xp:(apptPts+attack+csPts+bonus)*mins,
-    parts:{mins,apptPts,attack,csPts,bonus,matches:fixtures.length}
+    xp:(apptPts+attack+csPts+bonus)*mins*cal,
+    parts:{mins,apptPts,attack,csPts,bonus,matches:fixtures.length,cal}
   };
 }
 
@@ -403,7 +405,7 @@ function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 // Modellens egna prognoser sparas före deadline så de går att döma i
 // efterhand. Utan detta kan boten aldrig visa om den har rätt, och en modell
 // som slipper facit är precis en sådan bot som CLAUDE.md varnar för.
-const PRED_KEY = "gafferos:predictions";
+const PRED_KEY = "glennos:predictions";
 function savePredictions(gw, squad, fm){
   try{
     const all = JSON.parse(localStorage.getItem(PRED_KEY) || "{}");
@@ -415,7 +417,7 @@ function savePredictions(gw, squad, fm){
 }
 // Traffsakerhet per omgang, sa felet gar att folja over tid. Det talet ar
 // signalen for nar modellens grund bar tillrackligt for en solver.
-const ACC_KEY = "gafferos:accuracy";
+const ACC_KEY = "glennos:accuracy";
 function saveAccuracy(gw, mae){
   try{
     const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
@@ -433,6 +435,131 @@ function readAccuracyHistory(){
 function readPredictions(gw){
   try{ return (JSON.parse(localStorage.getItem(PRED_KEY)||"{}"))[gw] || null; }
   catch{ return null; }
+}
+
+// ── Självkalibrering ────────────────────────────────────────────────────────
+// Modellen har sitt eget facit sparat. Ligger den systematiskt fel åt ett håll
+// kan den rätta sig själv — inte genom att gissa, utan genom kvoten mellan
+// summan faktiska poäng och summan prognos över de omgångar vi mätt.
+//
+// Kravet är minst tre mätta omgångar. Under det är underlaget för tunt och
+// faktorn låses till 1, alltså ingen justering alls. Faktorn kläms också till
+// intervallet 0,7–1,4 så en enskild galen omgång inte kan kapa modellen.
+const SELFCAL_MIN_GWS = 3, SELFCAL_CLAMP = [0.7, 1.4];
+function buildSelfCalibration(){
+  let preds;
+  try{ preds = JSON.parse(localStorage.getItem(PRED_KEY) || "{}"); }catch{ return {factor:1, gws:0}; }
+  let obs;
+  try{ obs = JSON.parse(localStorage.getItem(ACTUAL_KEY) || "{}"); }catch{ return {factor:1, gws:0}; }
+  const gws=Object.keys(obs).filter(g=>preds[g]);
+  if(gws.length < SELFCAL_MIN_GWS) return {factor:1, gws:gws.length, need:SELFCAL_MIN_GWS};
+  let sumPred=0, sumAct=0;
+  for(const g of gws)
+    for(const [id,pred] of Object.entries(preds[g])){
+      if(obs[g][id]==null) continue;
+      sumPred+=pred; sumAct+=obs[g][id];
+    }
+  if(sumPred<=0) return {factor:1, gws:gws.length};
+  const raw=sumAct/sumPred;
+  const factor=Math.max(SELFCAL_CLAMP[0], Math.min(SELFCAL_CLAMP[1], raw));
+  return {factor, raw, gws:gws.length};
+}
+
+// Faktiska poäng per spelare och omgång sparas bredvid prognosen, annars går
+// kalibreringen inte att räkna i efterhand.
+const ACTUAL_KEY = "glennos:actuals";
+function saveActuals(gw, livePts, ids){
+  try{
+    const all=JSON.parse(localStorage.getItem(ACTUAL_KEY)||"{}");
+    if(all[gw]) return;
+    all[gw]=Object.fromEntries(ids.map(id=>[id, livePts[id]?.total_points ?? 0]));
+    localStorage.setItem(ACTUAL_KEY, JSON.stringify(all));
+  }catch{}
+}
+
+// ── Egna svårighetsbetyg ────────────────────────────────────────────────────
+// FPL:s team_h_difficulty är en grov etta-till-femma satt före säsongen. Våra
+// egna byggs på lagens faktiska anfall och försvar, krympta mot ligasnittet
+// efter spelade omgångar — samma disciplin som xGC och xGI.
+//
+// Så här tidigt är de SÄMRE än FPL:s, vilket vi mätt: lagdata efter en omgång
+// är brus. De visas därför bredvid FPL:s med sin mognad utskriven, inte i
+// stället för dem.
+const OWN_FDR_PSEUDO = 3;
+function buildOwnRatings(bs){
+  const atk={}, def={}, mins={};
+  for(const p of bs.elements){
+    const m=num(p.minutes); if(m<=0) continue;
+    atk[p.team]=(atk[p.team]||0)+num(p.expected_goals)+num(p.expected_assists);
+    def[p.team]=(def[p.team]||0)+num(p.expected_goals_conceded);
+    mins[p.team]=(mins[p.team]||0)+m;
+  }
+  const rate=o=>Object.fromEntries(Object.keys(o).map(t=>[t, mins[t]?o[t]/mins[t]*90*11:0]));
+  const a=rate(atk), d=rate(def);
+  const avg=o=>{const v=Object.values(o).filter(x=>x>0); return v.length?v.reduce((x,y)=>x+y,0)/v.length:1;};
+  const aAvg=avg(a), dAvg=avg(d), g=SEASON.gamesPlayed;
+  const shrink=(v,m)=>((v||m)*g + m*OWN_FDR_PSEUDO)/(g+OWN_FDR_PSEUDO);
+  const out={};
+  for(const t of bs.teams) out[t.id]={atk:shrink(a[t.id],aAvg), def:shrink(d[t.id],dAvg)};
+  out._avg={atk:aAvg, def:dAvg};
+  return out;
+}
+// Svårighet 1–5 för att möta lag `opp`: deras anfall mot vårt försvar och
+// tvärtom, skalat till samma skala som FPL:s för att gå att jämföra.
+function ownDifficulty(ratings, oppId, home){
+  const r=ratings[oppId]; if(!r) return null;
+  const rel=(r.atk/ratings._avg.atk)*(home?0.92:1.08);
+  return Math.max(1, Math.min(5, 3*rel));
+}
+
+// ── Tillförlitlighet ────────────────────────────────────────────────────────
+// Vi bygger funktioner innan datan bär, med flit. Priset för det är att varje
+// funktion måste säga hur mycket den är värd just nu — annars blir "bygg
+// tidigt" samma sak som att ljuga tidigt.
+//
+// mognad(): hur många omgångar som krävs innan en funktion är att lita på,
+// jämfört med hur många som spelats.
+function maturity(needed){
+  const g=SEASON.gamesPlayed;
+  if(g>=needed) return {level:"ok", text:`Vilar på ${g} spelade omgångar.`};
+  if(g>=Math.ceil(needed/2)) return {level:"thin",
+    text:`Vilar på ${g} av ${needed} omgångar som behövs — läs den som en riktning, inte ett facit.`};
+  return {level:"weak",
+    text:`Bara ${g} spelad${g===1?"":"e"} omgång${g===1?"":"ar"} av ${needed} som behövs. Siffrorna nedan är ännu inte att lita på — de blir bättre för varje omgång.`};
+}
+
+// ── Rotationsplanering ──────────────────────────────────────────────────────
+// Vilken elva som är bäst i varje kommande omgång, givet truppen du har.
+// Bygger helt på estimateXpAt och bestXI som redan finns — det här är att
+// köra dem framåt i tiden och visa mönstret.
+function buildRotation(squad, fm, elementTypes, gw, n=5){
+  const out=[];
+  for(let g=gw; g<gw+n; g++){
+    const xpOf=new Map(squad.map(p=>[p.id, estimateXpAt(p,fm,g,g===SEASON.nextGw).xp]));
+    // bestXI rankar på estimateXp (nästa omgång). Här behöver vi den för en
+    // godtycklig omgång, så vi återanvänder samma uttömmande formationssökning
+    // men med den omgångens xP.
+    const byPos={1:[],2:[],3:[],4:[]};
+    for(const p of squad) if(byPos[p.element_type]) byPos[p.element_type].push(p);
+    for(const k of Object.keys(byPos)) byPos[k].sort((a,b)=>xpOf.get(b.id)-xpOf.get(a.id));
+    const lim=Object.fromEntries(elementTypes.map(t=>[t.id,{min:t.squad_min_play,max:t.squad_max_play}]));
+    let best=null;
+    for(let d=lim[2].min; d<=lim[2].max; d++)
+      for(let m=lim[3].min; m<=lim[3].max; m++)
+        for(let f=lim[4].min; f<=lim[4].max; f++){
+          if(1+d+m+f!==11) continue;
+          if(byPos[2].length<d||byPos[3].length<m||byPos[4].length<f||!byPos[1].length) continue;
+          const xi=[...byPos[1].slice(0,1),...byPos[2].slice(0,d),...byPos[3].slice(0,m),...byPos[4].slice(0,f)];
+          const total=xi.reduce((s,p)=>s+xpOf.get(p.id),0);
+          if(!best||total>best.total) best={total,xi,formation:`${d}-${m}-${f}`};
+        }
+    if(!best) continue;
+    const ids=new Set(best.xi.map(p=>p.id));
+    const blanks=squad.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===g));
+    const doubles=squad.filter(p=>(fm[p.team]||[]).filter(f=>f.gw===g).length>=2);
+    out.push({gw:g, ...best, ids, blanks, doubles, xpOf});
+  }
+  return out;
 }
 
 // ── Facit: vad som faktiskt hände ───────────────────────────────────────────
@@ -534,7 +661,7 @@ function buildAccuracy(picks, livePts, pb, predicted){
 }
 
 // ── Diagram ─────────────────────────────────────────────────────────────────
-// GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
+// GlennOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
 // märk ytterlägena i stället för varje tick.
 
 // Staplad stapel som visar VAR en spelares xP kommer ifrån. Datan har alltid
@@ -863,7 +990,21 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
 //
 // Inget lösenord delas och inget botskydd kringgås — det är hans data,
 // hämtad av honom själv.
-const LIVE_KEY = "gafferos:myteam";
+const LIVE_KEY = "glennos:myteam";
+
+// Boten hette GafferOS fram till 28 aug 2026. Sparad trupp, prognoser och
+// utfall låg under de gamla nycklarna, och prognosen för GW2 är den första
+// träffsäkerhetsmätningen — den får inte gå förlorad i ett namnbyte.
+// Flyttas en gång, skriver aldrig över något som redan finns.
+(function migrateOldKeys(){
+  try{
+    for(const name of ["myteam","predictions","actuals","accuracy"]){
+      const from="gafferos:"+name, to="glennos:"+name;
+      const v=localStorage.getItem(from);
+      if(v!=null && localStorage.getItem(to)==null) localStorage.setItem(to,v);
+    }
+  }catch{}
+})();
 
 // Kastar hellre än att tyst använda data vi inte förstår. En trupp som ser
 // fel ut är farligare än ingen trupp alls.
@@ -884,7 +1025,7 @@ function readLiveSquad(gw){
   if(!raw) return null;
   let d;
   try{ d = validateLiveSquad(JSON.parse(raw)); }
-  catch(e){ console.warn("[GafferOS] sparad trupp förkastad:", e.message); return null; }
+  catch(e){ console.warn("[GlennOS] sparad trupp förkastad:", e.message); return null; }
   // En trupp hämtad för en tidigare omgång är inte längre sann.
   if(d.gw !== gw) return null;
   return d;
@@ -902,7 +1043,7 @@ function captureLiveSquadFromHash(){
     history.replaceState(null,"",location.pathname+location.search);
     return d;
   }catch(e){
-    console.error("[GafferOS] kunde inte läsa truppen från bokmärkesknappen:", e.message);
+    console.error("[GlennOS] kunde inte läsa truppen från bokmärkesknappen:", e.message);
     return {error:e.message};
   }
 }
@@ -993,7 +1134,7 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const c={
-  // Archivo bär röst och gränssnitt, IBM Plex Mono varje siffra. GafferOS §02.
+  // Archivo bär röst och gränssnitt, IBM Plex Mono varje siffra. GlennOS §02.
   root:{fontFamily:'"Archivo",system-ui,sans-serif',color:T.ink,background:T.bg},
   railBtn:(a)=>({display:"flex",alignItems:"center",gap:`${SP[3]}px`,width:"100%",
     padding:`${SP[3]}px ${SP[3]}px`,border:"none",borderRadius:`${R.ctrl}px`,cursor:"pointer",
@@ -1063,7 +1204,7 @@ const c={
   barVal:{fontSize:"11px",fontWeight:600},
   barPair:{display:"flex",alignItems:"flex-end",gap:"2px",height:"90px"},
   barLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"9px",color:T.dim},
-  // Spelarkort — GafferOS §08: identitet plus statistik, raised surface.
+  // Spelarkort — GlennOS §08: identitet plus statistik, raised surface.
   lineupGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:`${SP[2]}px`,marginTop:`${SP[4]}px`},
   lineupCard:(inXI)=>({display:"flex",alignItems:"center",gap:`${SP[2]}px`,background:inXI?T.card:T.surface,border:`1px solid ${inXI?T.lineStrong:T.line}`,borderRadius:`${R.card}px`,padding:`${SP[3]}px ${SP[3]}px`,opacity:inXI?1:.75}),
   lineupName:{flex:1,fontSize:"14px",fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"},
@@ -1098,7 +1239,7 @@ const c={
   disclaimer:{fontSize:"11px",color:T.mut,maxWidth:"1440px",margin:"0 auto",padding:`${SP[5]}px`,borderTop:`1px solid ${T.line}`,lineHeight:1.6}
 };
 
-// Spelarkort — GafferOS §08: identitet plus statistik. Lagfärgad list överst
+// Spelarkort — GlennOS §08: identitet plus statistik. Lagfärgad list överst
 // så laget känns igen utan tröjbild, motståndare och hemma/borta under namnet.
 function PlayerCard({p,fm,tb,bench}){
   const e=estimateXp(p,fm);
@@ -1405,6 +1546,74 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   );
 }
 
+// Mognadsruta — varje ny funktion sager vad den ar vard just nu.
+function Maturity({needed}){
+  const m=maturity(needed);
+  const col=m.level==="ok"?T.good:m.level==="thin"?T.warn:T.bad;
+  return <div style={{...c.legendTxt,color:col,marginBottom:`${SP[4]}px`,lineHeight:1.6,maxWidth:"620px"}}>{m.text}</div>;
+}
+
+function EliteTab({bs,starters,bench}){
+  const [d,setD]=useState(null);
+  const [err,setErr]=useState(null);
+  useEffect(()=>{
+    fetch("/api/elite")
+      .then(r=>r.json())
+      .then(j=>{ if(j.error) throw new Error(j.error); setD(j); })
+      .catch(e=>setErr(e.message));
+  },[]);
+  if(err) return <div><div style={c.secTitle}>Eliten</div><div style={c.errNote}>Kunde inte hämta: {err}</div></div>;
+  if(!d) return <div><div style={c.secTitle}>Eliten</div><div style={c.weekSub}>Hämtar toppmanagernas lag…</div></div>;
+
+  const pb=Object.fromEntries(bs.elements.map(p=>[p.id,p]));
+  const mine=new Set([...starters,...bench].map(p=>p.id));
+  const rows=Object.entries(d.effective)
+    .map(([id,eo])=>({p:pb[id], eo, own:d.owned[id]||0, cap:d.captained[id]||0, har:mine.has(+id)}))
+    .filter(r=>r.p).sort((a,b)=>b.eo-a.eo).slice(0,15);
+  const saknas=rows.filter(r=>!r.har).slice(0,5);
+
+  return(
+    <div>
+      <div style={c.secTitle}>Eliten · topp {d.sampled} efter GW{d.gameweek}</div>
+      <Maturity needed={6}/>
+      <div style={{...c.legendTxt,marginBottom:`${SP[5]}px`,maxWidth:"620px",lineHeight:1.6}}>
+        Effektivt ägande räknar andelen lag där spelarens poäng faktiskt räknas,
+        med kaptenerna dubbelt. Det är måttet premiumsajter säljer — och det går
+        att räkna fram eftersom varje managers lag är publikt.
+      </div>
+      {Object.keys(d.chips||{}).length>0 &&
+        <div style={{...c.weekSub,marginBottom:`${SP[5]}px`}}>
+          Chips i urvalet: {Object.entries(d.chips).map(([k,v])=>`${k} ${v}%`).join(" · ")}.
+        </div>}
+      {rows.map(r=>(
+        <div key={r.p.id} style={{marginBottom:`${SP[3]}px`}}>
+          <div style={c.chartRow}>
+            <span style={c.chartName}>
+              {r.p.web_name}
+              {r.har && <span style={{color:T.brand,marginLeft:`${SP[2]}px`,fontSize:"11px"}}>· din</span>}
+            </span>
+            <span className="num" style={c.chartVal(r.har?T.brand:T.mut)}>
+              {r.eo.toFixed(0)}% EO · {r.cap.toFixed(0)}% ©
+            </span>
+          </div>
+          <div style={c.stackTrack}>
+            <div style={{width:`${Math.min(100,r.eo)}%`,background:r.har?T.brand:T.dim,height:"100%"}}/>
+          </div>
+        </div>
+      ))}
+      {saknas.length>0 && (
+        <div style={{marginTop:`${SP[6]}px`}}>
+          <div style={c.secTitle}>Det du inte har</div>
+          <div style={c.weekSub}>
+            {saknas.map(r=>`${r.p.web_name} (${r.eo.toFixed(0)}%)`).join(", ")}.
+            {" "}Varje sådan spelare är en risk mot fältet när han levererar.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewTab({review:r,tb}){
   if(!r) return <div style={c.weekSub}>Ingen spelad omgång att gå igenom än.</div>;
   const vsAvg = r.avg!=null ? r.points-r.avg : null;
@@ -1624,6 +1833,56 @@ function CaptainTab({starters,fm,tb}){
   );
 }
 
+// Rotationsplanering: vilken elva som är bäst i varje kommande omgång.
+function RotationPlan({squad,fm,bs,gw,tb}){
+  const plan=useMemo(()=>buildRotation(squad,fm,bs.element_types,gw),[squad,fm,bs,gw]);
+  if(!plan.length) return null;
+  return(
+    <div style={{marginTop:`${SP[10]}px`}}>
+      <div style={c.secTitle}>Rotationsplan · kommande {plan.length} omgångar</div>
+      <Maturity needed={4}/>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+          <thead><tr>
+            <th style={{textAlign:"left",paddingBottom:`${SP[2]}px`,color:T.dim,fontWeight:500,paddingRight:`${SP[3]}px`,minWidth:"120px"}}>Spelare</th>
+            {plan.map(g=><th key={g.gw} style={{textAlign:"center",paddingBottom:`${SP[2]}px`,color:T.dim,fontWeight:500,minWidth:"56px"}}>GW{g.gw}</th>)}
+          </tr></thead>
+          <tbody>
+            {squad.map(p=>(
+              <tr key={p.id} style={{borderTop:`1px solid ${T.line}`}}>
+                <td style={{padding:`${SP[2]}px ${SP[3]}px ${SP[2]}px 0`}}>
+                  <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+                  <span style={{marginLeft:`${SP[2]}px`,color:T.ink}}>{p.web_name}</span>
+                </td>
+                {plan.map(g=>{
+                  const inXI=g.ids.has(p.id);
+                  const blank=g.blanks.some(b=>b.id===p.id);
+                  const dbl=g.doubles.some(b=>b.id===p.id);
+                  return(
+                    <td key={g.gw} style={{textAlign:"center",padding:`${SP[1]}px`}}>
+                      <span className="num" style={{
+                        display:"inline-block",minWidth:"38px",padding:"2px 4px",borderRadius:`${R.ctrl}px`,
+                        fontSize:"11px",fontWeight:600,
+                        background:blank?"rgba(255,77,94,.12)":inXI?"rgba(200,255,46,.12)":"transparent",
+                        color:blank?T.bad:inXI?T.brand:T.dim}}>
+                        {blank?"–":g.xpOf.get(p.id).toFixed(1)}{dbl?"²":""}
+                      </span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{...c.legendTxt,marginTop:`${SP[3]}px`,lineHeight:1.6}}>
+        Limegrön = i den omgångens bästa elva. Röd streck = ingen match.
+        ² = dubbelomgång. Formationerna blir {plan.map(g=>`GW${g.gw} ${g.formation}`).join(" · ")}.
+      </div>
+    </div>
+  );
+}
+
 function FixtureTicker({starters,fm,tb}){
   const gws=[...new Set(starters.flatMap(p=>(fm[p.team]||[]).slice(0,5).map(f=>f.gw)))].sort((a,b)=>a-b).slice(0,5);
   const sorted=[...starters].sort((a,b)=>avgFdr(a.team,fm,5)-avgFdr(b.team,fm,5));
@@ -1693,6 +1952,7 @@ const TABS=[
   {id:"transfers",label:"Byten",icon:"⇄"},
   {id:"fixtures",label:"Fixtures",icon:"▦"},
   {id:"chips",label:"Chips",icon:"◆"},
+  {id:"elite",label:"Eliten",icon:"★"},
   {id:"review",label:"Facit",icon:"✓"},
   {id:"charts",label:"Analys",icon:"◱"},
   {id:"injuries",label:"Skador",icon:"!"},
@@ -1720,7 +1980,7 @@ function App(){
   useEffect(()=>{
     if(window.parent===window) return;
     const post=()=>window.parent.postMessage(
-      {type:"gafferos:height", height:document.documentElement.scrollHeight}, "*");
+      {type:"glennos:height", height:document.documentElement.scrollHeight}, "*");
     post();
     const ro=new ResizeObserver(post);
     ro.observe(document.documentElement);
@@ -1736,6 +1996,7 @@ function App(){
         SEASON.gamesPlayed = bs.events.filter(e=>e.finished).length;
         SEASON.xgc = buildTeamXgc(bs);
         SEASON.xgiPrior = buildXgiPrior(bs);
+        SEASON.ownFdr = buildOwnRatings(bs);
         const squadGw=entry.current_event;
         if(!squadGw)throw new Error("Laget har ingen spelad omgång ännu (entry.current_event saknas) — inget att planera utifrån.");
         const next=bs.events.find(e=>e.is_next);
@@ -1803,6 +2064,8 @@ function App(){
         // Traffsakerheten sparas per omgang sa en trend gar att visa nar det
         // finns flera matpunkter.
         if(review.accuracy) saveAccuracy(squadGw, review.accuracy.mae);
+        saveActuals(squadGw, livePts, picks.picks.map(x=>x.element));
+        SEASON.selfCal = buildSelfCalibration();
         review.accuracyHistory=readAccuracyHistory();
 
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
@@ -1863,7 +2126,7 @@ function App(){
     <div style={c.root}>
      <div className="shell">
       <nav className="rail">
-        <div style={c.railBrand}>GAFFER/OS</div>
+        <div style={c.railBrand}>GLENN/OS</div>
         {TABS.map(t=>(
           <button key={t.id} style={c.railBtn(tab===t.id)} onClick={()=>setTab(t.id)}>
             <span style={c.railIcon}>{t.icon}</span>
@@ -1939,8 +2202,10 @@ function App(){
         </div>
       )}
       {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
-      {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
+      {tab==="fixtures"&&<><FixtureTicker starters={starters} fm={fm} tb={tb}/>
+        <RotationPlan squad={[...starters,...bench]} fm={fm} bs={bs} gw={gw} tb={tb}/></>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
+      {tab==="elite"&&<EliteTab bs={bs} starters={starters} bench={bench}/>}
       {tab==="review"&&<ReviewTab review={review} tb={tb}/>}
       {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb} bs={bs} history={history}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}

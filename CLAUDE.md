@@ -4,8 +4,10 @@ Standing instructions for this repo. Read before every session.
 
 ## What this project is
 
-A personal **FPL (Fantasy Premier League) bot** — a free tool for one user that
-aims to match what premium FPL sites offer and give weekly optimal-play advice.
+**GLENN/OS** — a personal FPL (Fantasy Premier League) bot, a free tool for one
+user that aims to match what premium FPL sites offer and give weekly
+optimal-play advice. (Called GafferOS until 28 Aug 2026; the rename touched
+localStorage keys and the iframe postMessage type.)
 Stack: a single-file frontend (`index.html`, React via Babel-standalone, no build
 step) + Vercel serverless functions in `/api`. Two odds APIs are wired in. The core
 is an **xP (expected points) model** built on start probability (xMins), xG/xA per

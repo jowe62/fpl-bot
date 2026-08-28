@@ -232,7 +232,7 @@ vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
 5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
    chances" ur guidens exempel finns inte i API:t.
 
-## Utseende — GafferOS designsystem v1.4
+## Utseende — GlennOS designsystem v1.4
 Källa: `FPL Design System.pdf` på Johns skrivbord. Läs den med poppler
 (`pdftotext -layout` för text, `pdftoppm -png -r 110 -y N -H M` för utsnitt) —
 texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till.
@@ -258,7 +258,7 @@ formationen går att läsa av. Lagfärger ligger i `TEAM_COLOR` nycklad på
 nedflyttning; okända lag får neutral list.
 
 ## Diagram — vad datan bär
-GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
+GlennOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
 märk ytterlägena i stället för varje tick.
 
 | Diagram | Källa | Status |
@@ -277,7 +277,7 @@ exempel — det är illustrativ data, vilket står i dess egen sidfot.
 ## Iframen på wennerqvist.design
 Får hela viewportbredden (uppmätt 1728px på en 16" MacBook), så
 1440-layouten ryms. Höjden var hårdkodad till 1200px; boten postar nu sin
-egen höjd som `{type:"gafferos:height"}`. John lägger in lyssnaren i Webflow
+egen höjd som `{type:"glennos:height"}`. John lägger in lyssnaren i Webflow
 — tills dess gäller det fasta talet, och innehållet är 1168px vid 1440 bredd.
 
 ## Utseende (äldre anteckningar)
