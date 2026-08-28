@@ -388,6 +388,68 @@ function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
 function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
 function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 
+// ── Diagram ─────────────────────────────────────────────────────────────────
+// GafferOS §11: en accent per serie, gridlines på 6% vitt aldrig ovanpå datan,
+// märk ytterlägena i stället för varje tick.
+
+// Staplad stapel som visar VAR en spelares xP kommer ifrån. Datan har alltid
+// funnits i estimateXp().parts men kastades bort — det här är svaret på
+// "varför är den här siffran 2.5".
+function XpBreakdown({p,fm}){
+  const e=estimateXp(p,fm);
+  const segs=[
+    {k:"Närvaro", v:e.parts.apptPts*e.parts.mins, col:T.mut},
+    {k:"Anfall",  v:e.parts.attack*e.parts.mins,  col:T.brand},
+    {k:"Clean sheet", v:e.parts.csPts*e.parts.mins, col:T.info},
+    {k:"Bonus",   v:e.parts.bonus*e.parts.mins,   col:T.alt},
+  ].filter(x=>x.v>0.005);
+  const tot=segs.reduce((s,x)=>s+x.v,0);
+  if(!tot) return null;
+  return(
+    <div style={{marginBottom:`${SP[4]}px`}}>
+      <div style={c.chartRow}>
+        <span style={c.chartName}>{p.web_name}</span>
+        <span className="num" style={c.chartVal(T.ink)}>{e.xp.toFixed(1)}</span>
+      </div>
+      <div style={c.stackTrack}>
+        {segs.map(x=>(
+          <div key={x.k} title={`${x.k} ${x.v.toFixed(2)}`}
+               style={{width:`${(x.v/tot)*100}%`,background:x.col,height:"100%"}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Ytgraf över kommande omgångar. Blank ger noll och syns som ett hål —
+// hela poängen med att räkna per omgång i stället för att smeta ut ett snitt.
+function XpSparkline({p,fm,n=5}){
+  const gws=Array.from({length:n},(_,i)=>SEASON.nextGw+i);
+  const vals=gws.map(g=>estimateXpAt(p,fm,g,g===SEASON.nextGw).xp);
+  const max=Math.max(...vals,0.001);
+  const W=180,H=40;
+  const pts=vals.map((v,i)=>[i*(W/(n-1)), H-(v/max)*H]);
+  const d=pts.map((q,i)=>(i?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1)).join(" ");
+  return(
+    <div style={{marginBottom:`${SP[4]}px`}}>
+      <div style={c.chartRow}>
+        <span style={c.chartName}>{p.web_name}</span>
+        <span className="num" style={c.chartVal(T.mut)}>{vals.reduce((a,b)=>a+b,0).toFixed(1)} xP / {n} omg</span>
+      </div>
+      <svg width={W} height={H+14} style={{display:"block",overflow:"visible"}}>
+        <line x1="0" y1={H} x2={W} y2={H} stroke="rgba(255,255,255,.06)" strokeWidth="1"/>
+        <path d={`${d} L ${W} ${H} L 0 ${H} Z`} fill="rgba(200,255,46,.10)"/>
+        <path d={d} fill="none" stroke={T.brand} strokeWidth="1.5"/>
+        {vals.map((v,i)=> v===0
+          ? <circle key={i} cx={pts[i][0]} cy={H} r="2.5" fill={T.bad}/>
+          : null)}
+        <text x="0" y={H+12} fill={T.dim} fontSize="9" fontFamily="IBM Plex Mono">GW{gws[0]}</text>
+        <text x={W} y={H+12} fill={T.dim} fontSize="9" fontFamily="IBM Plex Mono" textAnchor="end">GW{gws[n-1]}</text>
+      </svg>
+    </div>
+  );
+}
+
 // ── Optimal startelva ───────────────────────────────────────────────────────
 // Maximerar summan av xP under FPL:s formationsregler. Reglerna läses ur
 // bootstrap (element_types.squad_min_play / squad_max_play) i stället för att
@@ -766,6 +828,14 @@ const c={
   weekFlag:(kind)=>({display:"flex",gap:"9px",alignItems:"flex-start",fontSize:"14px",lineHeight:1.6,color:T.ink,marginBottom:"9px"}),
   weekDot:(col)=>({width:"6px",height:"6px",borderRadius:"50%",background:col,marginTop:"7px",flexShrink:0}),
   weekMuted:{color:T.mut},
+  chartRow:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:`${SP[1]}px`},
+  chartName:{fontSize:"13px",fontWeight:600,color:T.ink},
+  chartVal:(col)=>({fontFamily:'"IBM Plex Mono",monospace',fontSize:"12px",fontWeight:600,color:col}),
+  stackTrack:{display:"flex",height:"8px",borderRadius:`${R.pill}px`,overflow:"hidden",background:"rgba(255,255,255,.06)"},
+  chartGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:`${SP[6]}px`},
+  chartLegend:{display:"flex",gap:`${SP[4]}px`,flexWrap:"wrap",marginBottom:`${SP[4]}px`},
+  legendDot:(col)=>({display:"inline-block",width:"8px",height:"8px",borderRadius:"2px",background:col,marginRight:`${SP[2]}px`}),
+  legendTxt:{fontSize:"11px",color:T.mut},
   // Spelarkort — GafferOS §08: identitet plus statistik, raised surface.
   lineupGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:`${SP[2]}px`,marginTop:`${SP[4]}px`},
   lineupCard:(inXI)=>({display:"flex",alignItems:"center",gap:`${SP[2]}px`,background:inXI?T.card:T.surface,border:`1px solid ${inXI?T.lineStrong:T.line}`,borderRadius:`${R.card}px`,padding:`${SP[3]}px ${SP[3]}px`,opacity:inXI?1:.75}),
@@ -1129,6 +1199,62 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   );
 }
 
+function ChartsTab({starters,bench,fm,tb}){
+  const squad=[...starters,...bench];
+  const byXp=[...starters].sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp);
+  // Truppvärde per position — donut i systemets accenter.
+  const posSum={2:0,3:0,4:0,1:0};
+  for(const p of squad) posSum[p.element_type]+=p.now_cost/10;
+  const tot=Object.values(posSum).reduce((a,b)=>a+b,0);
+  const slices=[
+    {k:"Anfall + mittfält", v:posSum[3]+posSum[4], col:T.brand},
+    {k:"Försvar", v:posSum[2], col:T.info},
+    {k:"Målvakt", v:posSum[1], col:T.alt},
+  ];
+  let acc=0;
+  const arcs=slices.map(x=>{const from=acc/tot*100; acc+=x.v; return {...x,from,to:acc/tot*100};});
+  return(
+    <div>
+      <div style={c.chartGrid}>
+        <div>
+          <div style={c.secTitle}>Var poängen kommer ifrån</div>
+          <div style={c.chartLegend}>
+            {[["Närvaro",T.mut],["Anfall",T.brand],["Clean sheet",T.info],["Bonus",T.alt]].map(([k,col])=>(
+              <span key={k} style={c.legendTxt}><i style={c.legendDot(col)}/>{k}</span>
+            ))}
+          </div>
+          {byXp.map(p=><XpBreakdown key={p.id} p={p} fm={fm}/>)}
+        </div>
+        <div>
+          <div style={c.secTitle}>xP per kommande omgång</div>
+          <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`}}>
+            Röd punkt = blank omgång. Odds gäller bara GW{SEASON.nextGw}; längre fram är det xG-modellen.
+          </div>
+          {byXp.slice(0,8).map(p=><XpSparkline key={p.id} p={p} fm={fm}/>)}
+        </div>
+      </div>
+
+      <div style={{marginTop:`${SP[10]}px`}}>
+        <div style={c.secTitle}>Truppvärde fördelat</div>
+        <div style={{display:"flex",gap:`${SP[6]}px`,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{width:"150px",height:"150px",borderRadius:"50%",flexShrink:0,
+            background:`conic-gradient(${arcs.map(a=>`${a.col} ${a.from}% ${a.to}%`).join(",")})`,
+            WebkitMask:"radial-gradient(circle, transparent 56%, #000 57%)",
+            mask:"radial-gradient(circle, transparent 56%, #000 57%)"}}/>
+          <div>
+            {arcs.map(a=>(
+              <div key={a.k} style={{...c.chartRow,gap:`${SP[6]}px`,minWidth:"220px"}}>
+                <span style={c.legendTxt}><i style={c.legendDot(a.col)}/>{a.k}</span>
+                <span className="num" style={c.chartVal(T.ink)}>£{a.v.toFixed(1)}m · {(a.v/tot*100).toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CaptainTab({starters,fm,tb}){
   const ranked=[...starters].filter(p=>p.element_type!==1).map(p=>({...p,_xp:estimateXp(p,fm).xp})).sort((a,b)=>b._xp-a._xp).slice(0,5);
   return(
@@ -1224,6 +1350,7 @@ const TABS=[
   {id:"transfers",label:"Byten",icon:"⇄"},
   {id:"fixtures",label:"Fixtures",icon:"▦"},
   {id:"chips",label:"Chips",icon:"◆"},
+  {id:"charts",label:"Analys",icon:"◱"},
   {id:"injuries",label:"Skador",icon:"!"},
 ];
 
@@ -1431,6 +1558,7 @@ function App(){
       {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
       {tab==="fixtures"&&<FixtureTicker starters={starters} fm={fm} tb={tb}/>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
+      {tab==="charts"&&<ChartsTab starters={starters} bench={bench} fm={fm} tb={tb}/>}
       {tab==="injuries"&&<InjuryTab starters={starters} bench={bench}/>}
 
       </main>
