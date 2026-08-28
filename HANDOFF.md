@@ -195,6 +195,31 @@ De gamla trösklarna (`avgTeamFdr3 > 3.3`, `benchXp >= 14`) var handplockade uta
 stöd, och en "för"-punkt påstod att Bench Boost ger 6–8 poäng i snitt utan
 källa. Återinför inget av det.
 
+## Facit — efterhandsanalys
+Egen flik. Bygger på `/event/{gw}/live/`, som ger varje spelares **faktiska**
+poäng för omgången, plus picks och `entry_history`.
+
+Tre delar: resultat mot snittet och `highest_score`, kaptensvalet, och bänken.
+
+**Två saker som är lätta att räkna fel på — ändra dem inte:**
+- Kaptensbandet ger **ett** extra varv av spelaren, inte dubbla. Förlusten mot
+  ett bättre val är alltså differensen rakt av, inte 2×.
+- Poäng på bänken är **bara** förlorade om en startspelare uteblev och
+  auto-bytet gick in. Spelade alla elva fanns de aldrig att hämta, och då säger
+  vyn det i stället för att skuldbelägga.
+
+**Boten dömer sig själv.** `savePredictions()` sparar xP per spelare för den
+omgång vi planerar mot, före deadline. `buildAccuracy()` jämför i efterhand:
+medelavvikelse i poäng samt mest under- respektive överskattad spelare. En
+prognos **skrivs aldrig över i efterhand** — då vore facit meningslöst.
+Träffsäkerheten visas först när det finns en sparad prognos, alltså från GW2.
+
+Felet över tid är också signalen för när solvern är värd att bygga: krymper
+medelavvikelsen bär grunden, annars inte.
+
+Ej byggt men billigt: **bytesdomen** — sålde du någon som sedan sprängde?
+`/entry/{id}/transfers/` plus live-poäng ger svaret.
+
 ## Diagram — byggda
 Ligger i Analys-fliken. Regler ur §11: en accent per serie, gridlines på 6%
 vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
@@ -223,9 +248,7 @@ texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till
 - 4px-grid i `SP`, radius i `R`.
 
 **Klart (steg 2):** layout. 264px rail med etiketter, kollapsar till 54px
-ikoner under 1280 och ska bli bottenrad under 600. **Mobilläget är INTE
-verifierat** — förhandsgranskningspanelen går inte smalare än 980px. Öppna på
-telefon och kontrollera att railen hamnar i botten.
+ikoner under 1280 och bottenrad under 600. Verifierat på riktig telefon.
 
 **Klart (steg 3):** diagram, se ovan.
 
@@ -307,9 +330,6 @@ du påstår något om rankningen.
    `selected_by_percent` men inget kaptensfält alls. Premium-sajterna samplar
    tusentals lag. Template-överlappet (se nedan) är den ärliga delmängden; kalla
    det aldrig EO.
-3. **Mobilläget under 600px är aldrig verifierat.** CSS:en finns — railen ska bli
-   en bottenrad — men förhandsgranskningspanelen går inte smalare än 980px.
-   Öppna på telefon och kontrollera.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
