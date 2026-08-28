@@ -325,11 +325,17 @@ du påstår något om rankningen.
 1. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
    klart mest arbete: en optimering över budget, formation, fria transfers och
    avdrag över N omgångar. Inte påbörjad.
-2. **Äkta effective ownership går inte att bygga** från det publika API:t. Den
-   kräver kaptensandelar och FPL exponerar inga — `bootstrap.elements` har
-   `selected_by_percent` men inget kaptensfält alls. Premium-sajterna samplar
-   tusentals lag. Template-överlappet (se nedan) är den ärliga delmängden; kalla
-   det aldrig EO.
+2. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
+   motsatsen — den var fel. `bootstrap.elements` saknar kaptensfält, men varje
+   managers lag är publikt: `/leagues-classic/314/standings/` ger topplistan och
+   `/entry/{id}/event/{gw}/picks/` ger deras trupp, kapten och chip. Ägande OCH
+   kaptensandel går alltså att räkna fram genom sampling. Uppmätt: 20 managers
+   på 0,3 sekunder parallellt.
+
+   Varning: tidigt på säsongen är "topp N" bara de som haft tur i en omgång,
+   inte skickliga managers. Siffran blir meningsfull först när ranken hunnit
+   stabiliseras.
+
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.
