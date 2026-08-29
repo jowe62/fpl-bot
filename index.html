@@ -1841,15 +1841,36 @@ function EliteTab({bs,starters,bench}){
     <div>
       <div style={c.secTitle}>Eliten · topp {d.sampled} efter GW{d.gameweek}</div>
       <Maturity needed={6}/>
+      <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`,maxWidth:"620px",lineHeight:1.6,color:T.warn}}>
+        Urvalet är topplistan i overall-ligan, alltså de med flest poäng totalt.
+        Så här tidigt är det till stor del de som haft tur eller spelat ett chip
+        — inte nödvändigtvis de skickligaste. Ranken behöver några omgångar på
+        sig innan skicklighet väger tyngre än slump.
+      </div>
       <div style={{...c.legendTxt,marginBottom:`${SP[5]}px`,maxWidth:"620px",lineHeight:1.6}}>
         Effektivt ägande räknar andelen lag där spelarens poäng faktiskt räknas,
         med kaptenerna dubbelt. Det är måttet premiumsajter säljer — och det går
         att räkna fram eftersom varje managers lag är publikt.
       </div>
-      {Object.keys(d.chips||{}).length>0 &&
-        <div style={{...c.weekSub,marginBottom:`${SP[5]}px`}}>
-          Chips i urvalet: {Object.entries(d.chips).map(([k,v])=>`${k} ${v}%`).join(" · ")}.
-        </div>}
+      {Object.keys(d.chips||{}).length>0 && (() => {
+        // Ett sant tal som lätt läses fel. Overall-ligan sorteras på
+        // totalpoäng, så ett chip som ger extrapoäng blir nästan en biljett in
+        // på topplistan. Andelen beskriver alltså urvalet, inte vad managers
+        // i allmänhet gör — och det måste stå, annars vilseleder siffran.
+        const top=Object.entries(d.chips).sort((a,b)=>b[1]-a[1]);
+        const dominant=top[0] && top[0][1]>=50;
+        return(
+          <div style={{...c.weekSub,marginBottom:`${SP[5]}px`}}>
+            Chips i urvalet: {top.map(([k,v])=>`${k} ${v}%`).join(" · ")}.
+            {dominant &&
+              <> <span style={{color:T.warn}}>Läs det baklänges:</span> topplistan
+                 sorteras på totalpoäng, så ett chip som ger extrapoäng är i
+                 praktiken biljetten in hit så här tidigt. Siffran säger att
+                 {" "}{top[0][1]}% av <em>de som ligger överst</em> spelade
+                 {" "}{top[0][0]} — inte att lika många managers gjorde det.</>}
+          </div>
+        );
+      })()}
       {rows.map(r=>(
         <div key={r.p.id} style={{marginBottom:`${SP[3]}px`}}>
           <div style={c.chartRow}>
