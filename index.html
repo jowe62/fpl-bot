@@ -24,13 +24,24 @@
     .railfoot{display:none;}
   }
   @media (max-width:599px){
-    .shell{grid-template-columns:minmax(0,1fr);gap:0;padding:16px 16px 88px;}
+    .shell{grid-template-columns:minmax(0,1fr);gap:0;padding:16px 16px 76px;}
+    .brandline{display:none;}
+    /* GafferOS §13: bottenrad med FYRA destinationer. Nio knappar i rad blir
+       oläsbara — tre primära plus Mer, resten i ett ark. */
     .rail{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;
-          justify-content:space-around;background:#0E1116;border-top:1px solid #1E242D;
-          padding:8px 4px;z-index:50;gap:0;}
-    .rail .lbl{display:inline;font-size:10px;}
-    .rail button{flex-direction:column;gap:2px;font-size:10px;}
+          background:#0E1116;border-top:1px solid #1E242D;
+          padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:50;gap:0;}
+    .rail .lbl{display:inline;font-size:10px;line-height:1.2;}
+    .rail button{flex:1;flex-direction:column;gap:3px;font-size:10px;padding:6px 2px;
+                 border-left:none;border-bottom:2px solid transparent;}
+    .rail button[data-active="1"]{border-bottom-color:#C8FF2E;background:transparent;}
+    .rail .overflow{display:none;}
+    .rail.open{flex-wrap:wrap;padding-bottom:calc(10px + env(safe-area-inset-bottom));}
+    .rail.open .overflow{display:flex;}
+    .rail.open .overflow-row{display:flex;width:100%;order:-1;
+      border-bottom:1px solid #1E242D;padding-bottom:6px;margin-bottom:6px;}
   }
+  @media (min-width:600px){ .moreBtn{display:none;} }
 </style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -39,7 +50,28 @@
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
 const FPL_PROXY = "/api/fpl";
-const TEAM_ID = 1036486;
+// Lag som går att titta på. Det första är standardvalet.
+const TEAMS = [
+  { id: 1036486, label: "Johnny B. Goode", owner: "John",    mine: true  },
+  { id: 3382468, label: "rickesnick",      owner: "Richard", mine: false },
+];
+const TEAM_KEY = "glennos:team";
+function activeTeamId(){
+  try{
+    const v = +localStorage.getItem(TEAM_KEY);
+    if(TEAMS.some(t=>t.id===v)) return v;
+  }catch{}
+  return TEAMS[0].id;
+}
+function setActiveTeam(id){
+  try{ localStorage.setItem(TEAM_KEY, String(id)); }catch{}
+  location.reload();
+}
+// Sparade nycklar är per lag — annars skulle Richards trupp och prognoser
+// skriva över dina. TEAM_ID läses en gång vid start och ändras bara via
+// omladdning, så den är stabil under en session.
+const TEAM_ID = activeTeamId();
+const teamKey = base => `${base}:${TEAM_ID}`;
 const LEAGUE_ID = 200158;   // GBG Filbyter Bois
 // ── Designtokens ────────────────────────────────────────────────────────────
 // Skandinavisk minimalism: varmt neutral botten, en enda textfärg som accent,
@@ -406,7 +438,7 @@ function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 // Modellens egna prognoser sparas före deadline så de går att döma i
 // efterhand. Utan detta kan boten aldrig visa om den har rätt, och en modell
 // som slipper facit är precis en sådan bot som CLAUDE.md varnar för.
-const PRED_KEY = "glennos:predictions";
+const PRED_KEY = teamKey("glennos:predictions");
 function savePredictions(gw, squad, fm){
   try{
     const all = JSON.parse(localStorage.getItem(PRED_KEY) || "{}");
@@ -418,7 +450,7 @@ function savePredictions(gw, squad, fm){
 }
 // Traffsakerhet per omgang, sa felet gar att folja over tid. Det talet ar
 // signalen for nar modellens grund bar tillrackligt for en solver.
-const ACC_KEY = "glennos:accuracy";
+const ACC_KEY = teamKey("glennos:accuracy");
 function saveAccuracy(gw, mae){
   try{
     const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
@@ -468,7 +500,7 @@ function buildSelfCalibration(){
 
 // Faktiska poäng per spelare och omgång sparas bredvid prognosen, annars går
 // kalibreringen inte att räkna i efterhand.
-const ACTUAL_KEY = "glennos:actuals";
+const ACTUAL_KEY = teamKey("glennos:actuals");
 function saveActuals(gw, livePts, ids){
   try{
     const all=JSON.parse(localStorage.getItem(ACTUAL_KEY)||"{}");
@@ -1011,7 +1043,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
 //
 // Inget lösenord delas och inget botskydd kringgås — det är hans data,
 // hämtad av honom själv.
-const LIVE_KEY = "glennos:myteam";
+const LIVE_KEY = teamKey("glennos:myteam");
 
 // Boten hette GafferOS fram till 28 aug 2026. Sparad trupp, prognoser och
 // utfall låg under de gamla nycklarna, och prognosen för GW2 är den första
@@ -1019,8 +1051,17 @@ const LIVE_KEY = "glennos:myteam";
 // Flyttas en gång, skriver aldrig över något som redan finns.
 (function migrateOldKeys(){
   try{
+    // Steg 1: GafferOS -> GlennOS (namnbytet 28 aug 2026).
     for(const name of ["myteam","predictions","actuals","accuracy"]){
       const from="gafferos:"+name, to="glennos:"+name;
+      const v=localStorage.getItem(from);
+      if(v!=null && localStorage.getItem(to)==null) localStorage.setItem(to,v);
+    }
+    // Steg 2: onamnrymdda nycklar tillhorde det forsta laget, som var det
+    // enda som fanns innan lagvaljaren. Flytta dem dit.
+    const first=TEAMS[0].id;
+    for(const name of ["myteam","predictions","actuals","accuracy"]){
+      const from="glennos:"+name, to=`glennos:${name}:${first}`;
       const v=localStorage.getItem(from);
       if(v!=null && localStorage.getItem(to)==null) localStorage.setItem(to,v);
     }
@@ -2252,6 +2293,7 @@ function App(){
   const [analyzing,setAnalyzing]=useState(false);
   const [results,setResults]=useState(null);
   const [tab,setTab]=useState("week");
+  const [menuOpen,setMenuOpen]=useState(false);
   const [oddsStatus,setOddsStatus]=useState("off");
 
   // Sidan ligger i en iframe med fast hojd pa wennerqvist.design. I stallet
@@ -2412,14 +2454,30 @@ function App(){
   return(
     <div style={c.root}>
      <div className="shell">
-      <nav className="rail">
-        <div style={c.railBrand}>GLENN/OS</div>
-        {TABS.map(t=>(
-          <button key={t.id} style={c.railBtn(tab===t.id)} onClick={()=>setTab(t.id)}>
+      <nav className={"rail"+(menuOpen?" open":"")}>
+        <div className="brandline" style={c.railBrand}>GLENN/OS</div>
+        <div className="brandline" style={{padding:`0 ${SP[3]}px ${SP[5]}px`}}>
+          {TEAMS.map(t=>(
+            <button key={t.id} onClick={()=>t.id!==TEAM_ID&&setActiveTeam(t.id)}
+              style={{...c.railBtn(t.id===TEAM_ID),padding:`${SP[2]}px ${SP[3]}px`,fontSize:"13px"}}>
+              <span style={c.railIcon}>{t.id===TEAM_ID?"◉":"○"}</span>
+              <span className="lbl">{t.owner}</span>
+            </button>
+          ))}
+        </div>
+        {TABS.map((t,i)=>(
+          <button key={t.id} data-active={tab===t.id?"1":"0"}
+            className={i>=3?"overflow":""}
+            style={c.railBtn(tab===t.id)}
+            onClick={()=>{setTab(t.id); setMenuOpen(false);}}>
             <span style={c.railIcon}>{t.icon}</span>
             <span className="lbl">{t.label}</span>
           </button>
         ))}
+        <button className="moreBtn" style={c.railBtn(menuOpen)} onClick={()=>setMenuOpen(!menuOpen)}>
+          <span style={c.railIcon}>{menuOpen?"×":"⋯"}</span>
+          <span className="lbl">{menuOpen?"Stäng":"Mer"}</span>
+        </button>
         <div className="railfoot">
           <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
           {oddsStatus==="on" && teamsNoOdds.length>0 &&
@@ -2431,7 +2489,10 @@ function App(){
       <main>
       <div style={c.hdr}>
         <div style={c.hdrTitle}>{entry.name}</div>
-        <div style={c.hdrSub}>FPL Advisor · GW{gw}</div>
+        <div style={c.hdrSub}>
+          {entry.player_first_name} {entry.player_last_name} · GW{gw}
+          {!TEAMS.find(t=>t.id===TEAM_ID)?.mine && <span style={{color:T.warn}}> · du tittar på ett annat lag</span>}
+        </div>
         <div style={c.stats}>
           <div style={c.stat}><div style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
           <div style={c.stat}><div style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
@@ -2444,7 +2505,11 @@ function App(){
 
       <div style={c.squad}>
         <div style={c.sLbl}>
-          Startspelare · {live ? <>ditt lag för GW{gw}</> : <>ditt lag i GW{squadGw}</>}
+          Startspelare · {(() => {
+            const t=TEAMS.find(x=>x.id===TEAM_ID);
+            const vems = t?.mine ? "ditt lag" : `${t?.owner}s lag`;
+            return live ? `${vems} för GW${gw}` : `${vems} i GW${squadGw}`;
+          })()}
         </div>
         {live
           ? <div style={c.liveNote}>
@@ -2455,10 +2520,14 @@ function App(){
               {" "}<button style={c.weekLink} onClick={()=>{try{localStorage.removeItem(LIVE_KEY);}catch{} location.reload();}}>Rensa</button>
             </div>
           : <div style={c.staleNote}>
-              FPL publicerar en omgångs trupp först när dess deadline passerat. Har du
-              gjort byten inför GW{gw} syns de inte här, och då kan både truppen ovan,
-              antalet fria transfers och bytesförslagen gälla ett lag du redan ändrat.
-              Använd bokmärkesknappen för att hämta ditt aktuella lag.
+              FPL publicerar en omgångs trupp först när dess deadline passerat, så
+              byten inför GW{gw} syns inte här.
+              {TEAMS.find(t=>t.id===TEAM_ID)?.mine
+                ? <> Använd bokmärkesknappen för att hämta ditt aktuella lag.</>
+                : <> Det här är {TEAMS.find(t=>t.id===TEAM_ID)?.owner}s lag, och
+                    bokmärkesknappen kan bara hämta ditt eget — den läser FPL med
+                    din inloggning. För andras lag finns bara det som är publikt,
+                    alltså senast spelade omgång.</>}
             </div>}
         {liveError && <div style={c.errNote}>Bokmärkesknappen skickade något boten inte förstod: {liveError}</div>}
         <Pitch players={starters} fm={fm} tb={tb} bench={false}/>
