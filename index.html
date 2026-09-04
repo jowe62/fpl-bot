@@ -68,8 +68,34 @@
     .pcard .parm{width:12px!important;height:12px!important;font-size:8px!important;}
     .pitchrow{gap:6px!important;}
     .pitch{gap:6px!important;}
-    /* Breda ytor får rulla i sidled i stället för att spränga layouten. */
-    .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    /* GafferOS §13: tabeller rullar ALDRIG i sidled på mobil — de blir
+       staplade rader. Sidledsrullning i en vertikalt scrollande vy är svår
+       att ens upptäcka, och omöjlig att läsa av i en överblick. */
+    .scrollx{overflow-x:visible;}
+
+    /* Omgångstabeller (fixtures, rotation): spelaren får en egen rad och
+       omgångscellerna flödar under med sin egen GW-etikett. */
+    .gwtable thead{display:none;}
+    .gwtable,.gwtable tbody,.gwtable tr,.gwtable td{display:block;width:auto;}
+    .gwtable tr{border:1px solid #1E242D!important;border-radius:8px;
+      padding:10px 12px;margin-bottom:8px;}
+    .gwtable td{padding:0!important;}
+    .gwtable td:first-child{margin-bottom:8px;}
+    .gwtable td:not(:first-child){display:inline-block;margin:0 6px 4px 0;text-align:center;}
+    .gwtable td[data-l]::before{content:attr(data-l);display:block;
+      font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6C7684;margin-bottom:2px;}
+
+    /* Serietabellen: rad per lag, med de tva vardena som avgor inline. */
+    .rtable thead{display:none;}
+    .rtable,.rtable tbody,.rtable tr,.rtable td{display:block;width:auto;}
+    .rtable tr{border:1px solid #1E242D!important;border-radius:8px;
+      padding:10px 12px;margin-bottom:8px;position:relative;}
+    .rtable td{padding:0!important;text-align:left!important;}
+    .rtable td.rname{font-size:15px;font-weight:600;margin-bottom:6px;padding-right:76px!important;}
+    .rtable td.rpos{position:absolute;right:12px;top:10px;font-size:11px;color:#6C7684;}
+    .rtable td.rpts{position:absolute;right:12px;bottom:10px;font-size:17px!important;font-weight:700;}
+    .rtable td.rsub{display:inline-block;margin-right:10px;font-size:11px;color:#A7B0BD;}
+    .rtable td.rsub::before{content:attr(data-l) " ";color:#6C7684;}
   }
   @media (min-width:768px){ .topbar,.burger{display:none;} }
 </style>
@@ -1860,7 +1886,7 @@ function LeagueTab({bs,rawFx}){
           Räknad ur matchresultaten. FPL:s egen tabelldata i bootstrap är tom hela säsongen.
         </div>
         <div className="scrollx" style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
+          <table className="rtable" style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
             <thead><tr>
               {["#","Lag","Sp","V","O","F","MS","IS","Diff","P"].map((h,i)=>(
                 <th key={h} style={{textAlign:i<2?"left":"right",padding:`0 ${SP[2]}px ${SP[2]}px`,color:T.dim,fontWeight:500}}>{h}</th>
@@ -1869,16 +1895,16 @@ function LeagueTab({bs,rawFx}){
             <tbody>
               {table.map(t=>(
                 <tr key={t.id} style={{borderTop:`1px solid ${T.line}`}}>
-                  <td className="num" style={{padding:`${SP[2]}px`,color:T.dim}}>{t.pos}</td>
-                  <td style={{padding:`${SP[2]}px`,color:T.ink,whiteSpace:"nowrap"}}>
+                  <td className="num rpos" style={{padding:`${SP[2]}px`,color:T.dim}}>{t.pos}</td>
+                  <td className="rname" style={{padding:`${SP[2]}px`,color:T.ink,whiteSpace:"nowrap"}}>
                     <span style={{display:"inline-block",width:"3px",height:"12px",background:teamColor(t.short),marginRight:`${SP[2]}px`,verticalAlign:"middle"}}/>
                     {t.name}
                   </td>
-                  {[t.sp,t.v,t.o,t.f,t.gm,t.gi].map((v,i)=>(
-                    <td key={i} className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.mut}}>{v}</td>
+                  {[["Sp",t.sp],["V",t.v],["O",t.o],["F",t.f],["MS",t.gm],["IS",t.gi]].map(([l,v])=>(
+                    <td key={l} data-l={l} className="num rsub" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.mut}}>{v}</td>
                   ))}
-                  <td className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:t.diff>0?T.good:t.diff<0?T.bad:T.mut}}>{t.diff>0?"+":""}{t.diff}</td>
-                  <td className="num" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.ink,fontWeight:700}}>{t.p}</td>
+                  <td data-l="Diff" className="num rsub" style={{padding:`${SP[2]}px`,textAlign:"right",color:t.diff>0?T.good:t.diff<0?T.bad:T.mut}}>{t.diff>0?"+":""}{t.diff}</td>
+                  <td className="num rpts" style={{padding:`${SP[2]}px`,textAlign:"right",color:T.ink,fontWeight:700}}>{t.p}</td>
                 </tr>
               ))}
             </tbody>
@@ -2199,7 +2225,7 @@ function RotationPlan({squad,fm,bs,gw,tb}){
       <div style={c.secTitle}>Rotationsplan · kommande {plan.length} omgångar</div>
       <Maturity needed={4}/>
       <div className="scrollx" style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+        <table className="gwtable" style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
             <th style={{textAlign:"left",paddingBottom:`${SP[2]}px`,color:T.dim,fontWeight:500,paddingRight:`${SP[3]}px`,minWidth:"120px"}}>Spelare</th>
             {plan.map(g=><th key={g.gw} style={{textAlign:"center",paddingBottom:`${SP[2]}px`,color:T.dim,fontWeight:500,minWidth:"56px"}}>GW{g.gw}</th>)}
@@ -2216,7 +2242,7 @@ function RotationPlan({squad,fm,bs,gw,tb}){
                   const blank=g.blanks.some(b=>b.id===p.id);
                   const dbl=g.doubles.some(b=>b.id===p.id);
                   return(
-                    <td key={g.gw} style={{textAlign:"center",padding:`${SP[1]}px`}}>
+                    <td key={g.gw} data-l={"GW"+g.gw} style={{textAlign:"center",padding:`${SP[1]}px`}}>
                       <span className="num" style={{
                         display:"inline-block",minWidth:"38px",padding:"2px 4px",borderRadius:`${R.ctrl}px`,
                         fontSize:"11px",fontWeight:600,
@@ -2247,7 +2273,7 @@ function FixtureTicker({starters,fm,tb}){
     <div>
       <div style={c.secTitle}>Sorterat på FDR-snitt (bäst överst)</div>
       <div className="scrollx" style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+        <table className="gwtable" style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
             <th style={{textAlign:"left",paddingBottom:"8px",color:T.mut,fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
             {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:T.mut,fontWeight:"500",minWidth:"60px"}}>GW{g}</th>)}
@@ -2264,12 +2290,12 @@ function FixtureTicker({starters,fm,tb}){
                   </td>
                   {gws.map(g=>{
                     const f=(fm[p.team]||[]).find(fx=>fx.gw===g);
-                    if(!f)return<td key={g} style={{textAlign:"center"}}><span style={{color:T.line}}>–</span></td>;
-                    return(<td key={g} style={{textAlign:"center",padding:"3px 2px"}}>
+                    if(!f)return<td key={g} data-l={"GW"+g} style={{textAlign:"center"}}><span style={{color:T.line}}>–</span></td>;
+                    return(<td key={g} data-l={"GW"+g} style={{textAlign:"center",padding:"3px 2px"}}>
                       <div style={{background:fdrBg(f.diff),color:fdrTx(f.diff),borderRadius:"5px",padding:"2px 5px",fontSize:"11px",fontWeight:"500",display:"inline-block",whiteSpace:"nowrap"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</div>
                     </td>);
                   })}
-                  <td style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?T.good:avg<=3.5?T.warn:T.bad}}>{avg.toFixed(1)}</span></td>
+                  <td data-l="Snitt" style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?T.good:avg<=3.5?T.warn:T.bad}}>{avg.toFixed(1)}</span></td>
                 </tr>
               );
             })}
