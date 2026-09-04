@@ -85,6 +85,11 @@
     .gwtable td[data-l]::before{content:attr(data-l);display:block;
       font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6C7684;margin-bottom:2px;}
 
+    /* Stapelgrupper: smalare staplar och tatare mellanrum sa en hel sasong
+       ryms utan sidledsrullning. */
+    .barsWrap{gap:8px!important;}
+    .barCol .barPair{height:64px!important;}
+
     /* Serietabellen: rad per lag, med de tva vardena som avgor inline. */
     .rtable thead{display:none;}
     .rtable,.rtable tbody,.rtable tr,.rtable td{display:block;width:auto;}
@@ -817,7 +822,8 @@ function XpSparkline({p,fm,n=5}){
         <span style={c.chartName}>{p.web_name}</span>
         <span className="num" style={c.chartVal(T.mut)}>{vals.reduce((a,b)=>a+b,0).toFixed(1)} xP / {n} omg</span>
       </div>
-      <svg width={W} height={H+14} style={{display:"block",overflow:"visible"}}>
+      <svg viewBox={`0 0 ${W} ${H+14}`} width="100%" preserveAspectRatio="xMidYMid meet"
+           style={{display:"block",overflow:"visible",maxWidth:W+"px"}}>
         <line x1="0" y1={H} x2={W} y2={H} stroke="rgba(255,255,255,.06)" strokeWidth="1"/>
         <path d={`${d} L ${W} ${H} L 0 ${H} Z`} fill="rgba(200,255,46,.10)"/>
         <path d={d} fill="none" stroke={T.brand} strokeWidth="1.5"/>
@@ -847,14 +853,14 @@ function PointsPerGw({history,bs}){
         <span style={c.legendTxt}><i style={c.legendDot(T.brand)}/>Du</span>
         <span style={c.legendTxt}><i style={c.legendDot(T.dim)}/>Snittet</span>
       </div>
-      <div style={c.barsWrap}>
+      <div className="barsWrap" style={c.barsWrap}>
         {rows.map(r=>{
           const diff=r.you-r.avg;
           const col=diff>2?T.good:diff<-2?T.bad:T.mut;
           return(
-            <div key={r.gw} style={c.barCol}>
+            <div key={r.gw} className="barCol" style={c.barCol}>
               <span className="num" style={{...c.barVal,color:col}}>{r.you}</span>
-              <div style={c.barPair}>
+              <div className="barPair" style={c.barPair}>
                 <div style={{width:"10px",height:`${(r.you/max)*90}px`,background:T.brand,borderRadius:"2px 2px 0 0"}}/>
                 <div style={{width:"10px",height:`${(r.avg/max)*90}px`,background:T.dim,borderRadius:"2px 2px 0 0"}}/>
               </div>
@@ -1677,13 +1683,16 @@ function Maturity({needed}){
 function BumpChart({data,meId}){
   const gws=data.gameweeks;
   if(gws.length<2) return <div style={c.weekSub}>Klätterdiagrammet kräver minst två spelade omgångar.</div>;
-  const n=data.members.length, W=Math.max(240, gws.length*90), H=n*34;
+  // Bredden vaxer med antalet omgangar, men viewBoxen skalar ned den till
+  // containern — sa den blir aldrig bredare an skarmen.
+  const n=data.members.length, W=Math.max(240, gws.length*72), H=Math.max(120, n*34);
   const x=i=>gws.length>1 ? (i*(W/(gws.length-1))) : 0;
   const y=pos=>((pos-1)/Math.max(1,n-1))*(H-20)+10;
   const palette=[T.info,T.alt,T.warn,T.good,"#9B8CFF","#5FD99B"];
   return(
     <div className="scrollx" style={{overflowX:"auto"}}>
-      <svg width={W+70} height={H+26} style={{display:"block"}}>
+      <svg viewBox={`0 0 ${W+70} ${H+26}`} width="100%" preserveAspectRatio="xMidYMid meet"
+           style={{display:"block",maxWidth:(W+70)+"px"}}>
         {gws.map((g,i)=>(
           <text key={g} x={x(i)} y={H+20} fill={T.dim} fontSize="9" fontFamily="IBM Plex Mono"
                 textAnchor={i===0?"start":i===gws.length-1?"end":"middle"}>GW{g}</text>
@@ -1859,13 +1868,13 @@ function LeagueTab({bs,rawFx}){
 
         <div style={{marginTop:`${SP[10]}px`}}>
           <div style={c.secTitle}>Poäng per omgång</div>
-          <div style={c.barsWrap}>
+          <div className="barsWrap" style={c.barsWrap}>
             {d.gameweeks.map(g=>{
               const rows=d.table.find(t=>t.gw===g)?.rows||[];
               const max=Math.max(...d.table.flatMap(t=>t.rows.map(r=>r.points||0)),1);
               return(
-                <div key={g} style={c.barCol}>
-                  <div style={{...c.barPair,gap:"3px"}}>
+                <div key={g} className="barCol" style={c.barCol}>
+                  <div className="barPair" style={{...c.barPair,gap:"3px"}}>
                     {rows.map(r=>(
                       <div key={r.entry} title={`${r.points} p`}
                         style={{width:"9px",height:`${((r.points||0)/max)*90}px`,
@@ -2086,13 +2095,13 @@ function ReviewTab({review:r,tb}){
           {r.accuracyHistory && r.accuracyHistory.length>1 && (
             <div style={{marginTop:`${SP[4]}px`}}>
               <div style={{...c.legendTxt,marginBottom:`${SP[2]}px`}}>Fel per omgång — krymper det bär modellen</div>
-              <div style={c.barsWrap}>
+              <div className="barsWrap" style={c.barsWrap}>
                 {r.accuracyHistory.map(a=>{
                   const max=Math.max(...r.accuracyHistory.map(x=>x.mae),1);
                   return(
-                    <div key={a.gw} style={c.barCol}>
+                    <div key={a.gw} className="barCol" style={c.barCol}>
                       <span className="num" style={{...c.barVal,color:T.mut}}>{a.mae.toFixed(1)}</span>
-                      <div style={c.barPair}>
+                      <div className="barPair" style={c.barPair}>
                         <div style={{width:"14px",height:`${(a.mae/max)*90}px`,background:T.info,borderRadius:"2px 2px 0 0"}}/>
                       </div>
                       <span style={c.barLbl}>GW{a.gw}</span>
