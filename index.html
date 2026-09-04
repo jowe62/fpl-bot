@@ -23,25 +23,44 @@
     .rail button{justify-content:center;padding-left:0;padding-right:0;}
     .railfoot{display:none;}
   }
-  @media (max-width:599px){
-    .shell{grid-template-columns:minmax(0,1fr);gap:0;padding:16px 16px 76px;}
-    .brandline{display:none;}
-    /* GafferOS §13: bottenrad med FYRA destinationer. Nio knappar i rad blir
-       oläsbara — tre primära plus Mer, resten i ett ark. */
-    .rail{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;
-          background:#0E1116;border-top:1px solid #1E242D;
-          padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:50;gap:0;}
-    .rail .lbl{display:inline;font-size:10px;line-height:1.2;}
-    .rail button{flex:1;flex-direction:column;gap:3px;font-size:10px;padding:6px 2px;
-                 border-left:none;border-bottom:2px solid transparent;}
-    .rail button[data-active="1"]{border-bottom-color:#C8FF2E;background:transparent;}
-    .rail .overflow{display:none;}
-    .rail.open{flex-wrap:wrap;padding-bottom:calc(10px + env(safe-area-inset-bottom));}
-    .rail.open .overflow{display:flex;}
-    .rail.open .overflow-row{display:flex;width:100%;order:-1;
-      border-bottom:1px solid #1E242D;padding-bottom:6px;margin-bottom:6px;}
+  /* Topplisten med hamburgaren finns bara på mobil. */
+  .topbar{display:none;}
+
+  @media (max-width:767px){
+    .shell{grid-template-columns:minmax(0,1fr);gap:0;padding:0 0 32px;}
+
+    /* Hamburgare i en fast topplist. Menyn skriver ut alla destinationer
+       med ord — ikoner ensamma gick inte att tyda. */
+    .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:60;
+      background:#0E1116;border-bottom:1px solid #1E242D;padding:10px 16px;}
+    .burger{width:44px;height:44px;flex-shrink:0;display:flex;flex-direction:column;
+      justify-content:center;gap:5px;background:none;border:none;cursor:pointer;padding:0 10px;}
+    .burger i{display:block;height:2px;background:#F2F5F8;border-radius:2px;transition:.18s;}
+    .burger.on i:nth-child(1){transform:translateY(7px) rotate(45deg);}
+    .burger.on i:nth-child(2){opacity:0;}
+    .burger.on i:nth-child(3){transform:translateY(-7px) rotate(-45deg);}
+
+    /* Menyn tar hela ytan under listen. Varje rad minst 48px att träffa. */
+    .rail{position:fixed;inset:56px 0 0;top:56px;background:#07090C;z-index:55;
+      flex-direction:column;gap:2px;padding:16px;overflow-y:auto;display:none;}
+    .rail.open{display:flex;}
+    .rail .lbl{display:inline;font-size:16px;}
+    .rail button{min-height:52px;padding:0 16px;border-radius:8px;font-size:16px;gap:16px;}
+    .rail .railfoot{display:block;margin-top:auto;padding-top:16px;}
+
+    main{padding:16px;}
+    .mobHide{display:none!important;}
+    .kpi{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;}
+    /* Displaystorlekarna är satta för 1440px. På 390px äter de hela rader. */
+    .kpi .val{font-size:24px!important;line-height:28px!important;}
+    .lead{font-size:24px!important;line-height:30px!important;}
+    .htitle{font-size:18px!important;line-height:24px!important;}
+    /* Spelarkorten: tre per rad i stället för två, utan att bli oläsbara. */
+    .pcard{width:auto!important;flex:1 1 104px;max-width:132px;}
+    /* Breda ytor får rulla i sidled i stället för att spränga layouten. */
+    .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   }
-  @media (min-width:600px){ .moreBtn{display:none;} }
+  @media (min-width:768px){ .topbar,.burger{display:none;} }
 </style>
 <div id="fpl-root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -1211,7 +1230,7 @@ const c={
   hdrSub:{fontSize:"15px",lineHeight:"25px",color:T.mut,marginTop:"2px"},
   stats:{display:"flex",gap:"24px",marginTop:"18px",flexWrap:"wrap"},
   stat:{},
-  statVal:{fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",fontSize:"40px",lineHeight:"44px",fontWeight:700,color:T.ink,letterSpacing:"-.02em"},
+  statVal:{fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",fontSize:"40px",lineHeight:"44px",fontWeight:700,color:T.ink,letterSpacing:"-.02em"},   // skalas ned av .kpi .val pa mobil
   statLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginTop:"2px"},
   oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",marginTop:"16px",color:on?T.good:T.mut}),
   oddsWarn:{fontSize:"11px",color:T.warn,marginTop:"5px",lineHeight:1.5},
@@ -1308,7 +1327,7 @@ function PlayerCard({p,fm,tb,bench}){
   const f=(fm[p.team]||[])[0];
   const sn=tb[p.team]?.short_name;
   return(
-    <div style={c.pCard(bench)}>
+    <div className="pcard" style={c.pCard(bench)}>
       <div style={c.pBar(teamColor(sn))}/>
       <div style={c.pBody}>
         <div style={c.pTop}>
@@ -1476,13 +1495,13 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Kaptensbandet</div>
         {cap ? <>
-          <div style={c.weekLead}>Sätt bandet på {cap.web_name}</div>
+          <div className="lead" style={c.weekLead}>Sätt bandet på {cap.web_name}</div>
           <div style={c.weekSub}>
             {capXp.toFixed(1)} xP — högst i din startelva.
             {capFx && <> {capFx.home?"Hemma mot":"Borta mot"} {tb[capFx.oppId]?.name}.</>}
             {" "}Kaptenen räknas dubbelt, så det är veckans enskilt största beslut.
           </div>
-        </> : <div style={c.weekLead}>Ingen kaptenskandidat hittad.</div>}
+        </> : <div className="lead" style={c.weekLead}>Ingen kaptenskandidat hittad.</div>}
         <div style={{marginTop:"10px"}}>
           <button style={c.weekLink} onClick={()=>setTab("captain")}>Se hela rankningen</button>
         </div>
@@ -1492,8 +1511,8 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
 
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Laguppställning</div>
-        {!xi ? <div style={c.weekLead}>Kunde inte räkna fram en laglig elva.</div> : <>
-          <div style={c.weekLead}>
+        {!xi ? <div className="lead" style={c.weekLead}>Kunde inte räkna fram en laglig elva.</div> : <>
+          <div className="lead" style={c.weekLead}>
             {bringIn.length===0
               ? <>Din elva är redan den bästa</>
               : <>Byt in {bringIn.map(p=>p.web_name).join(" och ")}</>}
@@ -1538,7 +1557,7 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Transfer</div>
         {worthIt ? <>
-          <div style={c.weekLead}>Byt {best.out} mot {best.inn}</div>
+          <div className="lead" style={c.weekLead}>Byt {best.out} mot {best.inn}</div>
           <div style={c.weekSub}>
             Vinst {best.gain>=0?"+":""}{best.gain.toFixed(1)} xP över {best.horizon}.
             {best.cost>0
@@ -1546,7 +1565,7 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
               : <> Ryms i din {freeTransfers===1?"fria transfer":"fria transfers"}.</>}
           </div>
         </> : <>
-          <div style={c.weekLead}>Gör ingen transfer</div>
+          <div className="lead" style={c.weekLead}>Gör ingen transfer</div>
           <div style={c.weekSub}>
             {best
               ? <>Bästa alternativet ger {best.gain>=0?"+":""}{best.gain.toFixed(1)} xP{best.cost>0?<> och kostar −4</>:null}. Spara {freeTransfers===1?"den":"dem"} — en bankad transfer är värd mer nästa vecka när du vet mer.</>
@@ -1626,7 +1645,7 @@ function BumpChart({data,meId}){
   const y=pos=>((pos-1)/Math.max(1,n-1))*(H-20)+10;
   const palette=[T.info,T.alt,T.warn,T.good,"#9B8CFF","#5FD99B"];
   return(
-    <div style={{overflowX:"auto"}}>
+    <div className="scrollx" style={{overflowX:"auto"}}>
       <svg width={W+70} height={H+26} style={{display:"block"}}>
         {gws.map((g,i)=>(
           <text key={g} x={x(i)} y={H+20} fill={T.dim} fontSize="9" fontFamily="IBM Plex Mono"
@@ -1702,7 +1721,7 @@ function LeagueExtras({d,bs}){
       {d.captains && (
         <div style={{marginTop:`${SP[10]}px`}}>
           <div style={c.secTitle}>Kaptensval</div>
-          <div style={{overflowX:"auto"}}>
+          <div className="scrollx" style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
               <thead><tr>
                 <th style={{textAlign:"left",padding:`0 ${SP[3]}px ${SP[2]}px 0`,color:T.dim,fontWeight:500}}>Manager</th>
@@ -1829,7 +1848,7 @@ function LeagueTab({bs,rawFx}){
         <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`}}>
           Räknad ur matchresultaten. FPL:s egen tabelldata i bootstrap är tom hela säsongen.
         </div>
-        <div style={{overflowX:"auto"}}>
+        <div className="scrollx" style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
             <thead><tr>
               {["#","Lag","Sp","V","O","F","MS","IS","Diff","P"].map((h,i)=>(
@@ -1950,7 +1969,7 @@ function ReviewTab({review:r,tb}){
     <div>
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Facit · GW{r.gw}</div>
-        <div style={c.weekLead}>
+        <div className="lead" style={c.weekLead}>
           {r.points} poäng{vsAvg!=null && <>, {vsAvg>=0?"över":"under"} snittet</>}
         </div>
         <div style={c.weekSub}>
@@ -1978,7 +1997,7 @@ function ReviewTab({review:r,tb}){
         <hr style={c.weekRule}/>
         <div style={c.weekBlock}>
           <div style={c.weekKicker}>Bytena</div>
-          <div style={c.weekLead}>
+          <div className="lead" style={c.weekLead}>
             {r.transferVerdict.net>=0
               ? <>Bytet gav {r.transferVerdict.net} poäng</>
               : <>Bytet kostade {Math.abs(r.transferVerdict.net)} poäng</>}
@@ -2000,7 +2019,7 @@ function ReviewTab({review:r,tb}){
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Kaptensvalet</div>
         {r.cap ? <>
-          <div style={c.weekLead}>
+          <div className="lead" style={c.weekLead}>
             {r.capLoss>0 ? <>{r.capLoss} poäng låg i ett annat val</> : <>Du valde rätt kapten</>}
           </div>
           <div style={c.weekSub}>
@@ -2017,7 +2036,7 @@ function ReviewTab({review:r,tb}){
         <hr style={c.weekRule}/>
         <div style={c.weekBlock}>
           <div style={c.weekKicker}>Hur nära gick modellen</div>
-          <div style={c.weekLead}>
+          <div className="lead" style={c.weekLead}>
             {r.accuracy.mae.toFixed(1)} poäng fel i snitt
           </div>
           <div style={c.weekSub}>
@@ -2053,7 +2072,7 @@ function ReviewTab({review:r,tb}){
 
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Bänken</div>
-        <div style={c.weekLead}>
+        <div className="lead" style={c.weekLead}>
           {r.benchPts} poäng på bänken
         </div>
         <div style={c.weekSub}>
@@ -2168,7 +2187,7 @@ function RotationPlan({squad,fm,bs,gw,tb}){
     <div style={{marginTop:`${SP[10]}px`}}>
       <div style={c.secTitle}>Rotationsplan · kommande {plan.length} omgångar</div>
       <Maturity needed={4}/>
-      <div style={{overflowX:"auto"}}>
+      <div className="scrollx" style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
             <th style={{textAlign:"left",paddingBottom:`${SP[2]}px`,color:T.dim,fontWeight:500,paddingRight:`${SP[3]}px`,minWidth:"120px"}}>Spelare</th>
@@ -2216,7 +2235,7 @@ function FixtureTicker({starters,fm,tb}){
   return(
     <div>
       <div style={c.secTitle}>Sorterat på FDR-snitt (bäst överst)</div>
-      <div style={{overflowX:"auto"}}>
+      <div className="scrollx" style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
             <th style={{textAlign:"left",paddingBottom:"8px",color:T.mut,fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
@@ -2422,7 +2441,7 @@ function App(){
     <div style={c.root}>
       <div style={{maxWidth:"620px",margin:"0 auto",padding:`${SP[10]}px ${SP[5]}px`}}>
         <div style={c.weekKicker}>Ingen data</div>
-        <div style={c.weekLead}>
+        <div className="lead" style={c.weekLead}>
           {error.status===403 ? "FPL blockerar anropet just nu" : "Kunde inte hämta FPL-data"}
         </div>
         <div style={c.weekSub}>
@@ -2453,10 +2472,20 @@ function App(){
 
   return(
     <div style={c.root}>
+     <header className="topbar">
+       <button className={"burger"+(menuOpen?" on":"")} aria-label="Meny"
+               onClick={()=>setMenuOpen(!menuOpen)}><i/><i/><i/></button>
+       <div style={{flex:1,minWidth:0}}>
+         <div style={{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:700,letterSpacing:".14em",color:T.brand}}>GLENN/OS</div>
+         <div style={{fontSize:"13px",color:T.mut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+           {TABS.find(t=>t.id===tab)?.label} · GW{gw}
+         </div>
+       </div>
+     </header>
      <div className="shell">
       <nav className={"rail"+(menuOpen?" open":"")}>
-        <div className="brandline" style={c.railBrand}>GLENN/OS</div>
-        <div className="brandline" style={{padding:`0 ${SP[3]}px ${SP[5]}px`}}>
+        <div className="brandline mobHide" style={c.railBrand}>GLENN/OS</div>
+        <div style={{padding:`0 0 ${SP[4]}px`,marginBottom:`${SP[3]}px`,borderBottom:`1px solid ${T.line}`}}>
           {TEAMS.map(t=>(
             <button key={t.id} onClick={()=>t.id!==TEAM_ID&&setActiveTeam(t.id)}
               style={{...c.railBtn(t.id===TEAM_ID),padding:`${SP[2]}px ${SP[3]}px`,fontSize:"13px"}}>
@@ -2465,19 +2494,14 @@ function App(){
             </button>
           ))}
         </div>
-        {TABS.map((t,i)=>(
+        {TABS.map(t=>(
           <button key={t.id} data-active={tab===t.id?"1":"0"}
-            className={i>=3?"overflow":""}
             style={c.railBtn(tab===t.id)}
             onClick={()=>{setTab(t.id); setMenuOpen(false);}}>
             <span style={c.railIcon}>{t.icon}</span>
             <span className="lbl">{t.label}</span>
           </button>
         ))}
-        <button className="moreBtn" style={c.railBtn(menuOpen)} onClick={()=>setMenuOpen(!menuOpen)}>
-          <span style={c.railIcon}>{menuOpen?"×":"⋯"}</span>
-          <span className="lbl">{menuOpen?"Stäng":"Mer"}</span>
-        </button>
         <div className="railfoot">
           <div style={c.oddsBadge(fullCover)}>{fullCover?"●":"○"} {oddsLabel}</div>
           {oddsStatus==="on" && teamsNoOdds.length>0 &&
@@ -2488,18 +2512,18 @@ function App(){
       </nav>
       <main>
       <div style={c.hdr}>
-        <div style={c.hdrTitle}>{entry.name}</div>
+        <div className="htitle" style={c.hdrTitle}>{entry.name}</div>
         <div style={c.hdrSub}>
           {entry.player_first_name} {entry.player_last_name} · GW{gw}
           {!TEAMS.find(t=>t.id===TEAM_ID)?.mine && <span style={{color:T.warn}}> · du tittar på ett annat lag</span>}
         </div>
-        <div style={c.stats}>
-          <div style={c.stat}><div style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
-          <div style={c.stat}><div style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
-          <div style={c.stat}><div style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
-          <div style={c.stat}><div style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
+        <div style={c.stats} className="kpi">
+          <div style={c.stat}><div className="val" style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
+          <div style={c.stat}><div className="val" style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
+          <div style={c.stat}><div className="val" style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
+          <div style={c.stat}><div className="val" style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
           {squadValue!=null &&
-            <div style={c.stat}><div style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
+            <div style={c.stat}><div className="val" style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
         </div>
       </div>
 
