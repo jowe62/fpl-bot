@@ -2538,7 +2538,7 @@ function App(){
         </div>
       </div>
 
-      <div style={c.squad}>
+      {tab==="week" && <div style={c.squad}>
         <div style={c.sLbl}>
           Startspelare · {(() => {
             const t=TEAMS.find(x=>x.id===TEAM_ID);
@@ -2568,7 +2568,7 @@ function App(){
         <Pitch players={starters} fm={fm} tb={tb} bench={false}/>
         <div style={c.bLbl}>Bänk · i ordning för auto-byten</div>
         <Pitch players={bench} fm={fm} tb={tb} bench={true} singleRow/>
-      </div>
+      </div>}
 
 
       {tab==="week"&&<WeekTab starters={starters} bench={bench} bs={bs} fm={fm} tb={tb} bank={bank} gw={gw} freeTransfers={freeTransfers} chipAvail={chipAvail} setTab={setTab}/>}
