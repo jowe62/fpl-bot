@@ -303,6 +303,12 @@ texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till
 - Archivo för text, IBM Plex Mono för varje siffra, alltid `tabular-nums`.
 - 4px-grid i `SP`, radius i `R`.
 
+**Viewport-meta:** filen saknade `<meta name="viewport">` fram till 4 sep 2026.
+Utan den ger mobilwebbläsare sidan en låtsasbredd på 980px och skalar ned den,
+så inga mobilregler slår till — man får desktoplayouten hopkrympt. Det gällde
+även förhandsgranskningspanelen, vilket ledde mig till den felaktiga slutsatsen
+att panelen inte kunde gå smalare än 980. **Ta aldrig bort den taggen.**
+
 **Klart (steg 2):** layout. 264px rail med etiketter, kollapsar till 54px
 ikoner under 1280 och bottenrad under 600. Verifierat på riktig telefon.
 
