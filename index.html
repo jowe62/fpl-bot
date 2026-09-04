@@ -55,8 +55,18 @@
     .kpi .val{font-size:24px!important;line-height:28px!important;}
     .lead{font-size:24px!important;line-height:30px!important;}
     .htitle{font-size:18px!important;line-height:24px!important;}
-    /* Spelarkorten: tre per rad i stället för två, utan att bli oläsbara. */
-    .pcard{width:auto!important;flex:1 1 104px;max-width:132px;}
+    /* Spelarkorten: kompaktare så hela laget ryms utan att namnen blir
+       oläsbara. Fyra per rad på 390px, tätare innermått och mindre metatext. */
+    .pcard{width:auto!important;flex:1 1 78px;max-width:96px;}
+    .pcard .pbody{padding:5px 7px 7px!important;}
+    .pcard .pname{font-size:12.5px!important;letter-spacing:-.02em;}
+    .pcard .pmeta{font-size:9px!important;}
+    .pcard .pstats{margin-top:5px!important;}
+    .pcard .pprice{font-size:10.5px!important;}
+    .pcard .pxp{font-size:12.5px!important;}
+    .pcard .parm{width:12px!important;height:12px!important;font-size:8px!important;}
+    .pitchrow{gap:6px!important;}
+    .pitch{gap:6px!important;}
     /* Breda ytor får rulla i sidled i stället för att spränga layouten. */
     .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   }
@@ -1329,21 +1339,21 @@ function PlayerCard({p,fm,tb,bench}){
   return(
     <div className="pcard" style={c.pCard(bench)}>
       <div style={c.pBar(teamColor(sn))}/>
-      <div style={c.pBody}>
-        <div style={c.pTop}>
+      <div className="pbody" style={c.pBody}>
+        <div className="ptop" style={c.pTop}>
           <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
-          {p.isCaptain&&<span style={c.pArm(T.brand)}>C</span>}
-          {p.isVice&&<span style={c.pArm(T.mut)}>V</span>}
-          {isInjured(p)&&<span style={c.pArm(T.bad)}>✕</span>}
-          {!isInjured(p)&&isDoubtful(p)&&<span style={c.pArm(T.warn)}>!</span>}
+          {p.isCaptain&&<span className="parm" style={c.pArm(T.brand)}>C</span>}
+          {p.isVice&&<span className="parm" style={c.pArm(T.mut)}>V</span>}
+          {isInjured(p)&&<span className="parm" style={c.pArm(T.bad)}>✕</span>}
+          {!isInjured(p)&&isDoubtful(p)&&<span className="parm" style={c.pArm(T.warn)}>!</span>}
         </div>
-        <div style={c.pName}>{p.web_name}</div>
-        <div style={c.pMeta}>
+        <div className="pname" style={c.pName}>{p.web_name}</div>
+        <div className="pmeta" style={c.pMeta}>
           {sn} · {f? <>{f.home?"":"@"}{tb[f.oppId]?.short_name}</> : "ingen match"}
         </div>
-        <div style={c.pStats}>
-          <span className="num" style={c.pPrice}>£{(p.now_cost/10).toFixed(1)}</span>
-          <span className="num" style={c.pXp(e.xp)}>{e.xp.toFixed(1)}</span>
+        <div className="pstats" style={c.pStats}>
+          <span className="num pprice" style={c.pPrice}>£{(p.now_cost/10).toFixed(1)}</span>
+          <span className="num pxp" style={c.pXp(e.xp)}>{e.xp.toFixed(1)}</span>
         </div>
       </div>
     </div>
@@ -1357,9 +1367,9 @@ function Pitch({players,fm,tb,bench,singleRow}){
     ? [players]
     : [1,2,3,4].map(t=>players.filter(p=>p.element_type===t)).filter(r=>r.length);
   return(
-    <div style={c.pitch}>
+    <div className="pitch" style={c.pitch}>
       {rows.map((row,i)=>(
-        <div key={i} style={c.pitchRow}>
+        <div key={i} className="pitchrow" style={c.pitchRow}>
           {row.map(p=><PlayerCard key={p.id} p={p} fm={fm} tb={tb} bench={bench}/>)}
         </div>
       ))}
