@@ -13,7 +13,7 @@
   /* GlennOS §13 — brytpunkter 1280 / 900 / 600.
      Rail 264px med etiketter, sedan ikoner, sedan bottenrad. */
   .shell{display:grid;grid-template-columns:264px minmax(0,1fr);gap:32px;
-         max-width:1440px;margin:0 auto;padding:24px;min-height:100vh;}
+         max-width:1440px;margin:0 auto;padding:24px;}
   .rail{position:sticky;top:24px;align-self:start;display:flex;flex-direction:column;gap:4px;}
   .rail .lbl{display:inline;}
   .railfoot{margin-top:24px;}
@@ -41,10 +41,14 @@
     .burger.on i:nth-child(2){opacity:0;}
     .burger.on i:nth-child(3){transform:translateY(-7px) rotate(-45deg);}
 
-    /* Menyn tar hela ytan under listen. Varje rad minst 48px att träffa. */
-    .rail{position:fixed;inset:56px 0 0;top:56px;background:#07090C;z-index:55;
-      flex-direction:column;gap:2px;padding:16px;overflow-y:auto;display:none;}
+    /* Menyn ligger i flödet direkt under listen och ersätter innehållet när
+       den är öppen. En fast position med hårdkodad topp hamnade under listen
+       så fort den blev högre än talet, och i Webflow-iframen räknas fast
+       position mot hela iframen. Varje rad minst 48px att träffa. */
+    .rail{position:static;background:#07090C;
+      flex-direction:column;gap:2px;padding:16px;display:none;}
     .rail.open{display:flex;}
+    .shell.menu main{display:none;}
     .rail .lbl{display:inline;font-size:16px;}
     .rail button{min-height:52px;padding:0 16px;border-radius:8px;font-size:16px;gap:16px;}
     .rail .railfoot{display:block;margin-top:auto;padding-top:16px;}
@@ -2520,7 +2524,7 @@ function App(){
     <div style={c.root}>
      <header className="topbar">
        <button className={"burger"+(menuOpen?" on":"")} aria-label="Meny"
-               onClick={()=>setMenuOpen(!menuOpen)}><i/><i/><i/></button>
+               onClick={()=>{ if(!menuOpen) window.scrollTo(0,0); setMenuOpen(!menuOpen); }}><i/><i/><i/></button>
        <div style={{flex:1,minWidth:0}}>
          <div style={{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:700,letterSpacing:".14em",color:T.brand}}>GLENN/OS</div>
          <div style={{fontSize:"13px",color:T.mut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -2528,7 +2532,7 @@ function App(){
          </div>
        </div>
      </header>
-     <div className="shell">
+     <div className={"shell"+(menuOpen?" menu":"")}>
       <nav className={"rail"+(menuOpen?" open":"")}>
         <div className="brandline mobHide" style={c.railBrand}>GLENN/OS</div>
         <div style={{padding:`0 0 ${SP[4]}px`,marginBottom:`${SP[3]}px`,borderBottom:`1px solid ${T.line}`}}>

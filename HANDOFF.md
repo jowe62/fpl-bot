@@ -309,6 +309,15 @@ så inga mobilregler slår till — man får desktoplayouten hopkrympt. Det gäl
 även förhandsgranskningspanelen, vilket ledde mig till den felaktiga slutsatsen
 att panelen inte kunde gå smalare än 980. **Ta aldrig bort den taggen.**
 
+**Mobilmenyn ligger i flödet (13 sep 2026).** Den var `position:fixed` med
+hårdkodad `top:56px` medan topplisten mätte 65px, och på telefonen hamnade
+John-knappen under listen och gick inte att trycka på. Nu ligger menyn direkt
+under listen och döljer `main` när den är öppen. Gör den inte fast igen: i
+Webflow-iframen räknas fast position mot hela iframen.
+**Ingen `100vh` på något som påverkar dokumenthöjden.** `.shell{min-height:100vh}`
+plus topplisten gav en återkopplingsloop i iframen (vh = iframens höjd, som
+sätts från dokumenthöjden): uppmätt 71 856 → 139 658px på några sekunder.
+
 **Klart (steg 2):** layout. 264px rail med etiketter, kollapsar till 54px
 ikoner under 1280 och bottenrad under 600. Verifierat på riktig telefon.
 
