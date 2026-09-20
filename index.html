@@ -1537,6 +1537,58 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   const capFx = (fm[cap?.team]||[])[0];
   const capXp = cap?estimateXp(cap,fm).xp:0;
 
+  // Veckans brief. Språkmodellen får INTE räkna — den får exakt de värden som
+  // redan står i rutorna ovan och skriver om dem till löpande text. Därför
+  // byggs payloaden av samma variabler som renderas, inte av rådata.
+  const [brief,setBrief] = useState({state:"idle",text:"",error:""});
+  async function writeBrief(){
+    setBrief({state:"loading",text:"",error:""});
+    try{
+      const payload = {
+        gw,
+        kapten: cap ? {
+          namn: cap.web_name,
+          xp: +capXp.toFixed(1),
+          motstandare: capFx ? (tb[capFx.oppId]?.name || null) : null,
+          hemma: capFx ? !!capFx.home : null,
+        } : null,
+        elva: xi ? {
+          formation: xi.formation,
+          xpTotalt: +xi.total.toFixed(1),
+          bytIn: bringIn.map(p=>p.web_name),
+          banka: dropOut.map(p=>p.web_name),
+        } : null,
+        transfer: worthIt ? {
+          ut: best.out, in: best.inn,
+          vinstXp: +best.gain.toFixed(1),
+          kostarFyra: best.cost>0,
+          nettoXp: +best.net.toFixed(1),
+          horisont: best.horizon,
+        } : {
+          gorIngenTransfer: true,
+          bastaAlternativetVinstXp: best ? +best.gain.toFixed(1) : null,
+        },
+        friaTransfers: freeTransfers,
+        skadade: hurt.map(p=>({namn:p.web_name, notis:p.news||null})),
+        osakra: doubt.map(p=>({namn:p.web_name, speltidProcent:Math.round(xMins(p)*100)})),
+        bank: {spelbara:benchOk, spelarInte:benchDead, totalt:bench.length},
+        chipsKvar: chipsLeft,
+        templateOverlapp: overlap,
+      };
+      const r = await fetch("/api/briefing",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(()=>null);
+      if(!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+      if(!data?.text) throw new Error("Svaret saknade text");
+      setBrief({state:"done",text:data.text,error:""});
+    }catch(e){
+      setBrief({state:"error",text:"",error:String(e.message||e)});
+    }
+  }
+
   return(
     <div>
       <div style={c.weekBlock}>
@@ -1668,6 +1720,32 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
           <span>{benchOk===0
             ? <>Din bänk är tom på spelbara alternativ ({benchDead} av {bench.length} spelar inte). Uteblir en startspelare får du noll för platsen — auto-bytet har ingen att hämta.</>
             : <>Bänken har {benchOk} spelbar{benchOk===1?"":"a"} av {bench.length}. {benchDead>0 && <>{benchDead} spelar inte{benchOk<2?" — tunn täckning om någon i elvan uteblir":""}.</>}</>}</span>
+        </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Veckans brief</div>
+        <div style={{...c.weekSub,marginTop:0}}>
+          Samma beslut som ovan, skrivna i klartext av en språkmodell. Den får bara
+          formulera om det modellen redan räknat fram — den räknar inget själv och
+          kan inte lägga till spelare eller siffror som inte står här.
+        </div>
+        {brief.state==="done" &&
+          <div style={{...c.weekSub,whiteSpace:"pre-wrap"}}>{brief.text}</div>}
+        {brief.state==="error" &&
+          <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>
+            Briefen kunde inte skrivas: {brief.error}
+          </div>}
+        <div style={{marginTop:`${SP[4]}px`,maxWidth:"320px"}}>
+          <button style={c.btn(brief.state==="loading")}
+                  disabled={brief.state==="loading"}
+                  onClick={writeBrief}>
+            {brief.state==="loading" ? "Skriver…"
+              : brief.state==="done" ? "Skriv om"
+              : "Skriv veckans brief"}
+          </button>
         </div>
       </div>
     </div>
