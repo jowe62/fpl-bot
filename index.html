@@ -1287,6 +1287,7 @@ const c={
 
   squad:{marginBottom:"28px"},
   liveNote:{fontSize:"12px",lineHeight:1.6,color:T.good,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.good}`,maxWidth:"640px"},
+  underlag:{marginTop:`${SP[3]}px`,padding:`${SP[3]}px`,background:T.bg,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",lineHeight:1.6,color:T.mut,whiteSpace:"pre",overflow:"auto",maxHeight:"340px",maxWidth:"640px"},
   errNote:{fontSize:"12px",lineHeight:1.6,color:T.bad,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.bad}`,maxWidth:"640px"},
   staleNote:{fontSize:"12px",lineHeight:1.6,color:T.dim,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.line}`,maxWidth:"640px"},
   sLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
@@ -1540,9 +1541,10 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   // Veckans brief. Språkmodellen får INTE räkna — den får exakt de värden som
   // redan står i rutorna ovan och skriver om dem till löpande text. Därför
   // byggs payloaden av samma variabler som renderas, inte av rådata.
-  const [brief,setBrief] = useState({state:"idle",text:"",error:""});
+  const [brief,setBrief] = useState({state:"idle",text:"",error:"",payload:null});
+  const [visaUnderlag,setVisaUnderlag] = useState(false);
   async function writeBrief(){
-    setBrief({state:"loading",text:"",error:""});
+    setBrief({state:"loading",text:"",error:"",payload:null});
     try{
       const payload = {
         gw,
@@ -1583,9 +1585,9 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
       const data = await r.json().catch(()=>null);
       if(!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
       if(!data?.text) throw new Error("Svaret saknade text");
-      setBrief({state:"done",text:data.text,error:""});
+      setBrief({state:"done",text:data.text,error:"",payload});
     }catch(e){
-      setBrief({state:"error",text:"",error:String(e.message||e)});
+      setBrief({state:"error",text:"",error:String(e.message||e),payload:null});
     }
   }
 
@@ -1732,8 +1734,24 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
           formulera om det modellen redan räknat fram — den räknar inget själv och
           kan inte lägga till spelare eller siffror som inte står här.
         </div>
-        {brief.state==="done" &&
-          <div style={{...c.weekSub,whiteSpace:"pre-wrap"}}>{brief.text}</div>}
+        {brief.state==="done" && <>
+          <div style={{...c.weekSub,whiteSpace:"pre-wrap"}}>{brief.text}</div>
+          {/* Transparensen ar sjalva poangen. Pastaendet att modellen inte
+              raknar gar bara att lita pa om du kan se vad den faktiskt fick.
+              Varje siffra i texten ovan ska ga att hitta harunder. */}
+          <div style={{marginTop:`${SP[3]}px`}}>
+            <button style={c.weekLink} onClick={()=>setVisaUnderlag(!visaUnderlag)}>
+              {visaUnderlag ? "Dölj underlaget" : "Visa underlaget modellen fick"}
+            </button>
+          </div>
+          {visaUnderlag && <>
+            <div style={{...c.weekSub,fontSize:"13px"}}>
+              Detta är allt modellen fick se. Den hade ingen tillgång till FPL:s
+              data, till din trupp eller till något annat — bara raderna här.
+            </div>
+            <pre style={c.underlag}>{JSON.stringify(brief.payload,null,2)}</pre>
+          </>}
+        </>}
         {brief.state==="error" &&
           <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>
             Briefen kunde inte skrivas: {brief.error}
