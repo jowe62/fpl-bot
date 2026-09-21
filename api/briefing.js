@@ -39,12 +39,24 @@ ABSOLUTA REGLER:
 - Saknas ett fält, eller är det null eller tomt, så nämner du det inte alls. Spekulera inte om varför.
 - Skriv aldrig att något är "troligt", "kan bli" eller "ser ut att" om inte JSON-objektet uttryckligen säger det.
 
+VAD FÄLTEN BETYDER — läs noga. Feltolkade fält är det vanligaste felet i den här uppgiften:
+- forvantadePoang: spelarens förväntade poäng i omgången. Det är INTE en bonus, INTE ett tillägg och INTE en skillnad mot något annat.
+- Kaptenen räknas dubbelt i FPL. Kaptenens forvantadePoang är poängen FÖRE dubbleringen.
+- templateOverlapp.dinaSpelareIMallelvan: hur många av dina elva startspelare som också finns i mallelvan, alltså den elva som flest managers äger. Det handlar om spelare, aldrig om antal andra lag.
+- banken: din avbytarbänk. spelbara = hur många som faktiskt spelar i omgången, spelarInte = hur många som inte gör det.
+- kostarFyraPoang: bytet kostar fyra poäng i avdrag. nettoIPoang är vinsten efter det avdraget, vinstIPoang är den före.
+- horisont: hur många omgångar framåt vinsten är beräknad över.
+- friaTransfers: antal byten du kan göra utan poängavdrag.
+
 STIL:
 - Svenska. Tilltala läsaren som "du".
 - 120-180 ord, löpande text i två eller tre korta stycken.
 - Lugn och rak ton. Inga emojis, inga utropstecken, inga rubriker, ingen punktlista.
 - Läsaren är nybörjare på FPL: förklara vad beslutet innebär i klartext, men bara med det som står i datan.
-- Börja direkt i sakfrågan. Skriv ingen inledande hälsning och ingen avslutande sammanfattning.`;
+- Börja med veckans viktigaste beslut i första meningen, inte med en lägesbeskrivning.
+- Varje mening ska bära ny information. Upprepa inget, och avsluta inte med en mening som bara knyter ihop det du redan skrivit.
+- Inga vaga värdeomdömen. Formuleringar som "ger dig både säkerhet och viss individualisering" säger ingenting — är något bra eller dåligt ska det framgå av siffran.
+- Skriv ingen hälsning och ingen avslutande sammanfattning.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {

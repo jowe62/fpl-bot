@@ -1548,34 +1548,39 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
     try{
       const payload = {
         gw,
+        // Nycklarna ar avsiktligt sjalvbeskrivande. Med nakna namn som "xp"
+        // och "templateOverlapp: 6" gissade modellen vad de betydde och gissade
+        // fel — den skrev "2,9 poang extra" om kaptenens forvantade poang och
+        // "sex andra lag" om mallelvan. Data som forklarar sig sjalv ar ett
+        // robustare las an en ordlista som kan glida isar fran koden.
         kapten: cap ? {
           namn: cap.web_name,
-          xp: +capXp.toFixed(1),
+          forvantadePoang: +capXp.toFixed(1),
           motstandare: capFx ? (tb[capFx.oppId]?.name || null) : null,
           hemma: capFx ? !!capFx.home : null,
         } : null,
         elva: xi ? {
           formation: xi.formation,
-          xpTotalt: +xi.total.toFixed(1),
+          forvantadePoangTotalt: +xi.total.toFixed(1),
           bytIn: bringIn.map(p=>p.web_name),
           banka: dropOut.map(p=>p.web_name),
         } : null,
         transfer: worthIt ? {
           ut: best.out, in: best.inn,
-          vinstXp: +best.gain.toFixed(1),
-          kostarFyra: best.cost>0,
-          nettoXp: +best.net.toFixed(1),
+          vinstIPoang: +best.gain.toFixed(1),
+          kostarFyraPoang: best.cost>0,
+          nettoIPoang: +best.net.toFixed(1),
           horisont: best.horizon,
         } : {
           gorIngenTransfer: true,
-          bastaAlternativetVinstXp: best ? +best.gain.toFixed(1) : null,
+          bastaAlternativetVinstIPoang: best ? +best.gain.toFixed(1) : null,
         },
         friaTransfers: freeTransfers,
         skadade: hurt.map(p=>({namn:p.web_name, notis:p.news||null})),
         osakra: doubt.map(p=>({namn:p.web_name, speltidProcent:Math.round(xMins(p)*100)})),
-        bank: {spelbara:benchOk, spelarInte:benchDead, totalt:bench.length},
+        banken: {spelbara:benchOk, spelarInte:benchDead, totalt:bench.length},
         chipsKvar: chipsLeft,
-        templateOverlapp: overlap,
+        templateOverlapp: {dinaSpelareIMallelvan: overlap, avTotalt: starters.length},
       };
       const r = await fetch("/api/briefing",{
         method:"POST",
