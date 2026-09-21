@@ -42,20 +42,30 @@ const universe = await byggUniverse();
 console.log(`Namnregister: ${universe.length} spelare och lag fran FPL.`);
 console.log(`Endpoint: ${BAS}/api/briefing\n`);
 
-let fel = 0;
-for(const f of fixtures){
-  let text;
-  try { text = await skrivBrief(f.payload); }
-  catch(e){ console.log(`TRASIG  ${f.namn}\n        ${e.message}\n`); fel++; continue; }
+// Modellen ar icke-deterministisk: samma payload ger olika text varje gang.
+// En korning per fixtur bevisar darfor ingenting — vi mater en ANDEL.
+const N = Number(process.env.N || 3);
+console.log(`${N} korningar per fixtur.\n`);
 
-  const r = checkBrief({text, payload:f.payload, universe});
-  if(!r.ok) fel++;
-  console.log(`${r.ok?"FORANKRAD":"OFORANKRAD"}  ${f.namn}  (${text.split(/\s+/).length} ord)`);
-  for(const b of r.brott) console.log(`        -> ${b.typ}: ${b.varfor}`);
-  console.log(`        ${text.replace(/\n+/g," ").slice(0,150)}...\n`);
+let totalt = 0, fel = 0;
+for(const f of fixtures){
+  const brott = [];
+  let ord = 0, ok = 0;
+  for(let i = 0; i < N; i++){
+    totalt++;
+    let text;
+    try { text = await skrivBrief(f.payload); }
+    catch(e){ fel++; brott.push(`korning ${i+1} TRASIG: ${e.message}`); continue; }
+    ord += text.split(/\s+/).length;
+    const r = checkBrief({text, payload:f.payload, universe});
+    if(r.ok) ok++; else { fel++; for(const b of r.brott) brott.push(`korning ${i+1}: ${b.typ} — ${b.varfor}`); }
+    if(i === 0) console.log(`  exempel: ${text.replace(/\n+/g," ").slice(0,130)}...`);
+  }
+  console.log(`${ok}/${N} forankrade  ${f.namn}  (snitt ${Math.round(ord/N)} ord)`);
+  for(const b of brott) console.log(`        -> ${b}`);
+  console.log();
 }
 
-console.log(fel===0
-  ? `Alla ${fixtures.length} briefs forankrade.`
-  : `${fel} av ${fixtures.length} briefs underkanda.`);
+const andel = ((totalt-fel)/totalt*100).toFixed(0);
+console.log(`RESULTAT: ${totalt-fel}/${totalt} forankrade (${andel}%)`);
 process.exit(fel===0?0:1);
