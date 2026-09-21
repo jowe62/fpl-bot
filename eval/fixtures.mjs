@@ -4,7 +4,10 @@ export const fixtures = [
   { namn:"normalvecka, transfer lonar sig", payload:{
     gw:5,
     kapten:{namn:"B.Fernandes", xp:5.4, motstandare:"Fulham", hemma:false},
-    elva:{formation:"3-4-3", xpTotalt:41.2, bytIn:["Gudmundsson"], banka:["Osula"]},
+    // Gudmundsson bankas OCH byts bort — det ar sa lagena hanger ihop i
+    // verkligheten. En fixtur dar samma spelare bade tas in i elvan och
+    // saljs ar omojlig, och da mater evalen fel sak.
+    elva:{formation:"3-4-3", xpTotalt:41.2, bytIn:["Osula"], banka:["Gudmundsson"]},
     transfer:{ut:"Gudmundsson", in:"Davis", vinstXp:12.3, kostarFyra:false,
               nettoXp:12.3, horisont:"fem omgångar"},
     friaTransfers:1, skadade:[], osakra:[{namn:"Cash", speltidProcent:45}],
