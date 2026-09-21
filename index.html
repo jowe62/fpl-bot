@@ -1287,6 +1287,14 @@ const c={
 
   squad:{marginBottom:"28px"},
   liveNote:{fontSize:"12px",lineHeight:1.6,color:T.good,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.good}`,maxWidth:"640px"},
+  briefIntro:{fontSize:"13px",lineHeight:1.6,color:T.dim,maxWidth:"640px"},
+  briefCard:{marginTop:`${SP[4]}px`,maxWidth:"640px",background:T.card,border:`1px solid ${T.line}`,borderLeft:`3px solid ${T.brand}`,borderRadius:`${R.ctrl}px`,padding:`${SP[5]}px`},
+  briefMeta:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".12em",textTransform:"uppercase",color:T.dim,marginBottom:`${SP[3]}px`},
+  briefText:{fontSize:"15px",lineHeight:"27px",color:T.ink,whiteSpace:"pre-wrap"},
+  accRow:{borderTop:`1px solid ${T.line}`,maxWidth:"640px"},
+  accHead:{display:"flex",alignItems:"center",gap:`${SP[3]}px`,width:"100%",background:"none",border:"none",padding:`${SP[3]}px 0`,color:T.ink,font:"inherit",fontSize:"14px",cursor:"pointer",textAlign:"left"},
+  accPil:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",color:T.brand,width:"12px",flexShrink:0},
+  accDatum:{marginLeft:"auto",fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",color:T.dim},
   underlag:{marginTop:`${SP[3]}px`,padding:`${SP[3]}px`,background:T.bg,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",lineHeight:1.6,color:T.mut,whiteSpace:"pre",overflow:"auto",maxHeight:"340px",maxWidth:"640px"},
   errNote:{fontSize:"12px",lineHeight:1.6,color:T.bad,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.bad}`,maxWidth:"640px"},
   staleNote:{fontSize:"12px",lineHeight:1.6,color:T.dim,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.line}`,maxWidth:"640px"},
@@ -1541,10 +1549,15 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   // Veckans brief. Språkmodellen får INTE räkna — den får exakt de värden som
   // redan står i rutorna ovan och skriver om dem till löpande text. Därför
   // byggs payloaden av samma variabler som renderas, inte av rådata.
-  const [brief,setBrief] = useState({state:"idle",text:"",error:"",payload:null});
+  const [briefs,setBriefs] = useState(()=>readBriefs());
+  const [briefState,setBriefState] = useState({state:"idle",error:""});
   const [visaUnderlag,setVisaUnderlag] = useState(false);
+  const [oppenBrief,setOppenBrief] = useState(null);
+  const aktuellBrief = briefs[gw] || null;
+  const tidigareGws = Object.keys(briefs).map(Number)
+    .filter(g=>g!==gw).sort((a,b)=>b-a);
   async function writeBrief(){
-    setBrief({state:"loading",text:"",error:"",payload:null});
+    setBriefState({state:"loading",error:""});
     try{
       const payload = {
         gw,
@@ -1590,9 +1603,12 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
       const data = await r.json().catch(()=>null);
       if(!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
       if(!data?.text) throw new Error("Svaret saknade text");
-      setBrief({state:"done",text:data.text,error:"",payload});
+      const post = {text:data.text, payload, ts:Date.now()};
+      saveBrief(gw, post);
+      setBriefs(b=>({...b,[gw]:post}));
+      setBriefState({state:"done",error:""});
     }catch(e){
-      setBrief({state:"error",text:"",error:String(e.message||e),payload:null});
+      setBriefState({state:"error",error:String(e.message||e)});
     }
   }
 
@@ -1734,45 +1750,89 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
 
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Veckans brief</div>
-        <div style={{...c.weekSub,marginTop:0}}>
-          Samma beslut som ovan, skrivna i klartext av en språkmodell. Den får bara
-          formulera om det modellen redan räknat fram — den räknar inget själv och
-          kan inte lägga till spelare eller siffror som inte står här.
+        {/* Metatexten ar en fotnot om verktyget, inte en del av briefen.
+            Den ska darfor se ut som en fotnot — briefen ar ett eget inlagg. */}
+        <div style={c.briefIntro}>
+          Skriven av en språkmodell utifrån besluten ovan. Den räknar inget själv
+          och kan inte lägga till spelare eller siffror som inte står i underlaget.
         </div>
-        {brief.state==="done" && <>
-          <div style={{...c.weekSub,whiteSpace:"pre-wrap"}}>{brief.text}</div>
-          {/* Transparensen ar sjalva poangen. Pastaendet att modellen inte
-              raknar gar bara att lita pa om du kan se vad den faktiskt fick.
-              Varje siffra i texten ovan ska ga att hitta harunder. */}
-          <div style={{marginTop:`${SP[3]}px`}}>
-            <button style={c.weekLink} onClick={()=>setVisaUnderlag(!visaUnderlag)}>
-              {visaUnderlag ? "Dölj underlaget" : "Visa underlaget modellen fick"}
-            </button>
-          </div>
-          {visaUnderlag && <>
-            <div style={{...c.weekSub,fontSize:"13px"}}>
-              Detta är allt modellen fick se. Den hade ingen tillgång till FPL:s
-              data, till din trupp eller till något annat — bara raderna här.
+
+        {aktuellBrief && (
+          <article style={c.briefCard}>
+            <div style={c.briefMeta}>GLENN/OS · GW{gw} · {briefStamp(aktuellBrief.ts)}</div>
+            <div style={c.briefText}>{aktuellBrief.text}</div>
+            {/* Transparensen ar sjalva poangen. Pastaendet att modellen inte
+                raknar gar bara att lita pa om du kan se vad den faktiskt fick. */}
+            <div style={{marginTop:`${SP[4]}px`}}>
+              <button style={c.weekLink} onClick={()=>setVisaUnderlag(!visaUnderlag)}>
+                {visaUnderlag ? "Dölj underlaget" : "Visa underlaget modellen fick"}
+              </button>
             </div>
-            <pre style={c.underlag}>{JSON.stringify(brief.payload,null,2)}</pre>
-          </>}
-        </>}
-        {brief.state==="error" &&
+            {visaUnderlag && <>
+              <div style={{...c.weekSub,fontSize:"13px"}}>
+                Detta är allt modellen fick se. Den hade ingen tillgång till FPL:s
+                data, till din trupp eller till något annat — bara raderna här.
+              </div>
+              <pre style={c.underlag}>{JSON.stringify(aktuellBrief.payload,null,2)}</pre>
+            </>}
+          </article>
+        )}
+
+        {briefState.state==="error" &&
           <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>
-            Briefen kunde inte skrivas: {brief.error}
+            Briefen kunde inte skrivas: {briefState.error}
           </div>}
+
         <div style={{marginTop:`${SP[4]}px`,maxWidth:"320px"}}>
-          <button style={c.btn(brief.state==="loading")}
-                  disabled={brief.state==="loading"}
+          <button style={c.btn(briefState.state==="loading")}
+                  disabled={briefState.state==="loading"}
                   onClick={writeBrief}>
-            {brief.state==="loading" ? "Skriver…"
-              : brief.state==="done" ? "Skriv om"
+            {briefState.state==="loading" ? "Skriver…"
+              : aktuellBrief ? "Skriv om"
               : "Skriv veckans brief"}
           </button>
         </div>
+
+        {tidigareGws.length>0 && <div style={{marginTop:`${SP[6]}px`}}>
+          <div style={c.sLbl}>Tidigare veckor</div>
+          {tidigareGws.map(g=>(
+            <div key={g} style={c.accRow}>
+              <button style={c.accHead}
+                      onClick={()=>setOppenBrief(oppenBrief===g?null:g)}>
+                <span style={c.accPil}>{oppenBrief===g?"−":"+"}</span>
+                <span>Omgång {g}</span>
+                <span style={c.accDatum}>{briefStamp(briefs[g].ts)}</span>
+              </button>
+              {oppenBrief===g &&
+                <div style={{...c.briefText,paddingBottom:`${SP[4]}px`}}>{briefs[g].text}</div>}
+            </div>
+          ))}
+        </div>}
       </div>
     </div>
   );
+}
+
+// Briefen sparas per omgang sa den overlever en omladdning, och sa att
+// tidigare veckor gar att lasa igen. Samma monster som prognoser och facit:
+// ett {gw: ...}-objekt under en lagnamnad nyckel.
+const BRIEF_KEY = teamKey("glennos:briefs");
+function readBriefs(){
+  try{ return JSON.parse(localStorage.getItem(BRIEF_KEY) || "{}"); }
+  catch{ return {}; }
+}
+function saveBrief(gw, post){
+  try{
+    const all = readBriefs();
+    all[gw] = post;
+    localStorage.setItem(BRIEF_KEY, JSON.stringify(all));
+  }catch{}
+}
+function briefStamp(ts){
+  try{
+    return new Date(ts).toLocaleString("sv-SE",
+      {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  }catch{ return ""; }
 }
 
 // Mognadsruta — varje ny funktion sager vad den ar vard just nu.
