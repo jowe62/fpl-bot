@@ -62,7 +62,11 @@
     .htitle{font-size:18px!important;line-height:24px!important;}
     /* Spelarkorten: kompaktare så hela laget ryms utan att namnen blir
        oläsbara. Fyra per rad på 390px, tätare innermått och mindre metatext. */
-    .pcard{width:auto!important;flex:1 1 78px;max-width:96px;}
+    /* Tre rutor per kort kraver bredare kort. Tre per rad i stallet for fyra
+       ar priset, och det ar ratt pris: olasbara siffror ar vardelosa. */
+    .pcard{width:auto!important;flex:1 1 104px;max-width:128px;}
+    .pcard .pfxxp{font-size:11px!important;}
+    .pcard .pfxopp{font-size:8px!important;}
     .pcard .pbody{padding:5px 7px 7px!important;}
     .pcard .pname{font-size:12.5px!important;letter-spacing:-.02em;}
     .pcard .pmeta{font-size:9px!important;}
@@ -480,6 +484,37 @@ function estimateXpOver(p,fm,fromGw,n=LONG_HORIZON){
 // Snitt per omgång, så talet är jämförbart med estimateXp.
 function estimateXpLong(p,fm){ return estimateXpOver(p,fm,SEASON.nextGw)/LONG_HORIZON; }
 
+// Tre kommande omgangar per spelare, som pa premiumsajterna. Skillnaden ar att
+// vi INTE later dem se likvardiga ut. Bookmakern prissatter bara nasta omgang
+// (uppmatt: 10 matcher i oddsfonstret, alltsa en omgang), sa bara den forsta
+// rutan har odds bakom sig. Rutorna efter vilar pa xG-proxyn och motstandet,
+// vilket ar markbart osakrare tidigt pa sasongen. Att rita dem lika vore precis
+// ett sadant tyst byte av datakalla som resten av boten vagrar gora.
+const CARD_HORIZON = 3;
+function nextFixtureCells(p,fm,n=CARD_HORIZON){
+  const cells=[];
+  for(let g=SEASON.nextGw; g<SEASON.nextGw+n; g++){
+    const fx=(fm[p.team]||[]).filter(f=>f.gw===g);
+    cells.push({
+      gw:g,
+      fixtures:fx,
+      // Tom omgang ar inte noll poang, det ar ingen match alls. Skillnaden
+      // syns i rutan: streck, inte en nolla som ser ut som ett uselt betyg.
+      xp: fx.length ? estimateXpAt(p,fm,g,g===SEASON.nextGw).xp : null,
+      odds: g===SEASON.nextGw,
+    });
+  }
+  return cells;
+}
+// Dubbelomgang far ett plus efter motstandaren. Bada matcherna ar redan
+// inraknade i rutans siffra.
+function fxLabel(cell,tb){
+  if(!cell.fixtures.length) return "–";
+  const f=cell.fixtures[0];
+  const s=(f.home?"":"@")+(tb[f.oppId]?.short_name||"?");
+  return cell.fixtures.length>1 ? s+"+" : s;
+}
+
 
 // Ingen separat kaptenscoring. Den gamla la på +0.4 för hemmamatch ovanpå xP,
 // vilket dels räknade hemmaplan två gånger — odds-baserad csProb och
@@ -499,6 +534,16 @@ function scoreDiff(p,fm){
 function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
 function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
 function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
+// Ton per fixtureruta. Gront och rott ar tillatet har: forvantade poang ar en
+// verklig numerisk riktning, inte dekoration.
+function xpTone(v){
+  if(v==null) return {bg:"transparent",             fg:T.dim};
+  if(v>=5.5)  return {bg:"rgba(36,208,122,.20)",    fg:"#5FE3A1"};
+  if(v>=4)    return {bg:"rgba(36,208,122,.11)",    fg:"#7DE0AC"};
+  if(v>=2.5)  return {bg:"rgba(167,176,189,.09)",   fg:T.mut};
+  if(v>=1.5)  return {bg:"rgba(255,174,51,.15)",    fg:T.warn};
+  return             {bg:"rgba(255,77,94,.15)",     fg:T.bad};
+}
 
 // Modellens egna prognoser sparas före deadline så de går att döma i
 // efterhand. Utan detta kan boten aldrig visa om den har rätt, och en modell
@@ -1303,7 +1348,7 @@ const c={
   // Planvy och spelarkort
   pitch:{display:"flex",flexDirection:"column",gap:`${SP[3]}px`},
   pitchRow:{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:`${SP[2]}px`},
-  pCard:(bench)=>({width:"132px",background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.card}px`,overflow:"hidden",opacity:bench?.72:1}),
+  pCard:(bench)=>({width:"148px",background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.card}px`,overflow:"hidden",opacity:bench?.72:1}),
   pBar:(col)=>({height:"4px",background:col}),
   pBody:{padding:`${SP[2]}px ${SP[3]}px ${SP[3]}px`},
   pTop:{display:"flex",alignItems:"center",gap:`${SP[1]}px`,marginBottom:`${SP[1]}px`},
@@ -1311,6 +1356,14 @@ const c={
   pName:{fontSize:"14px",fontWeight:700,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-.01em"},
   pMeta:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",color:T.dim,marginTop:"1px"},
   pStats:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:`${SP[2]}px`},
+  pFx:{display:"flex",gap:"3px",marginTop:`${SP[2]}px`},
+  pFxCell:(v,odds)=>({flex:"1 1 0",minWidth:0,borderRadius:"4px",padding:"3px 2px 4px",
+    textAlign:"center",background:xpTone(v).bg,
+    borderTop:`2px solid ${odds?T.brand:"transparent"}`}),
+  pFxXp:(v)=>({display:"block",fontFamily:'"IBM Plex Mono",monospace',fontSize:"12px",
+    fontWeight:700,color:xpTone(v).fg,fontVariantNumeric:"tabular-nums"}),
+  pFxOpp:{display:"block",fontFamily:'"IBM Plex Mono",monospace',fontSize:"8.5px",color:T.dim,
+    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:"1px"},
   pPrice:{fontSize:"12px",color:T.mut},
   pXp:(v)=>({fontSize:"14px",fontWeight:700,color:xpColor(v)}),
   chip:(bench)=>({display:"inline-flex",alignItems:"center",gap:`${SP[2]}px`,background:T.card,border:`1px solid ${T.line}`,borderRadius:`${R.ctrl}px`,padding:`${SP[2]}px ${SP[3]}px`,margin:`0 ${SP[2]}px ${SP[2]}px 0`,fontSize:"13.5px",color:T.ink,opacity:bench?.55:1}),
@@ -1379,8 +1432,7 @@ const c={
 // Spelarkort — GlennOS §08: identitet plus statistik. Lagfärgad list överst
 // så laget känns igen utan tröjbild, motståndare och hemma/borta under namnet.
 function PlayerCard({p,fm,tb,bench}){
-  const e=estimateXp(p,fm);
-  const f=(fm[p.team]||[])[0];
+  const cells=nextFixtureCells(p,fm);
   const sn=tb[p.team]?.short_name;
   return(
     <div className="pcard" style={c.pCard(bench)}>
@@ -1395,11 +1447,18 @@ function PlayerCard({p,fm,tb,bench}){
         </div>
         <div className="pname" style={c.pName}>{p.web_name}</div>
         <div className="pmeta" style={c.pMeta}>
-          {sn} · {f? <>{f.home?"":"@"}{tb[f.oppId]?.short_name}</> : "ingen match"}
+          {sn} · <span className="num">£{(p.now_cost/10).toFixed(1)}</span>
         </div>
-        <div className="pstats" style={c.pStats}>
-          <span className="num pprice" style={c.pPrice}>£{(p.now_cost/10).toFixed(1)}</span>
-          <span className="num pxp" style={c.pXp(e.xp)}>{e.xp.toFixed(1)}</span>
+        {/* Motstandarna star nu i rutorna, sa de behover inte upprepas ovanfor. */}
+        <div className="pfx" style={c.pFx}>
+          {cells.map(cell=>(
+            <div key={cell.gw} style={c.pFxCell(cell.xp,cell.odds)}>
+              <span className="pfxxp" style={c.pFxXp(cell.xp)}>
+                {cell.xp==null ? "–" : cell.xp.toFixed(1)}
+              </span>
+              <span className="pfxopp" style={c.pFxOpp}>{fxLabel(cell,tb)}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -2766,6 +2825,12 @@ function App(){
             </div>}
         {liveError && <div style={c.errNote}>Bokmärkesknappen skickade något boten inte förstod: {liveError}</div>}
         <Pitch players={starters} fm={fm} tb={tb} bench={false}/>
+        <div style={{...c.legendTxt,maxWidth:"640px",lineHeight:1.6,marginTop:`${SP[4]}px`}}>
+          Tre kommande omgångar per spelare, med förväntade poäng. Bara den första
+          rutan har bookmakerodds bakom sig, markerad med limegrön kant. De två
+          följande vilar enbart på xG-modellen och är osäkrare. Streck betyder
+          ingen match, plus betyder dubbelomgång där båda matcherna är inräknade.
+        </div>
         <div style={c.bLbl}>Bänk · i ordning för auto-byten</div>
         <Pitch players={bench} fm={fm} tb={tb} bench={true} singleRow/>
       </div>}
