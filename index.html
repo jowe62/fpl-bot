@@ -962,10 +962,12 @@ function ThreatBreakdown({p,squad}){
 //
 // Uttömmande över alla lagliga formationer, och inom varje position räcker det
 // att ta de N högsta — så svaret är bevisat optimalt, inte en heuristik.
-function bestXI(squad, fm, elementTypes){
+function bestXI(squad, fm, elementTypes, scores){
   const byPos={1:[],2:[],3:[],4:[]};
   for(const p of squad) if(byPos[p.element_type]) byPos[p.element_type].push(p);
-  const xpOf=new Map(squad.map(p=>[p.id,estimateXp(p,fm).xp]));
+  // Egen poangkarta nar den ges. Lagbyggaren varderar over fem omgangar for
+  // Wildcard, dar nasta omgangs xP vore fel matt.
+  const xpOf=scores || new Map(squad.map(p=>[p.id,estimateXp(p,fm).xp]));
   for(const k of Object.keys(byPos)) byPos[k].sort((a,b)=>xpOf.get(b.id)-xpOf.get(a.id));
   const lim=Object.fromEntries(elementTypes.map(t=>[t.id,{min:t.squad_min_play,max:t.squad_max_play}]));
   if(!lim[1]||!byPos[1].length) return null;
@@ -1535,7 +1537,97 @@ function TransferCard({rec}){
   );
 }
 
-function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail}){
+// Lagforslag for Free Hit och Wildcard. On demand: losaren tar tiondels
+// sekunder, och den ska inte kora om vid varje rendering.
+function SquadSuggestion({mode,bs,fm,tb,budget}){
+  const [st,setSt]=useState({lage:"idle",res:null,fel:""});
+  const fh = mode==="fh";
+
+  function bygg(){
+    setSt({lage:"raknar",res:null,fel:""});
+    // Ge webblasaren en tick att rita om knappen innan losaren later tradden.
+    setTimeout(()=>{
+      try{
+        const pool=bs.elements.filter(p=>!isInjured(p)&&xMins(p)>=0.2);
+        const res=solveSquad({
+          pool, rules:squadRules(bs), budget,
+          // Free Hit varderas pa en enda omgang, den som har odds. Wildcard
+          // over fem, for truppen ar din tills du river den.
+          scoreOf: fh ? p=>estimateXpAt(p,fm,SEASON.nextGw,true).xp
+                      : p=>estimateXpOver(p,fm,SEASON.nextGw,LONG_HORIZON),
+          // Free Hit-banken spelar aldrig, sa den ska vara billigast mojliga
+          // och pengarna ligga i elvan. Wildcard-banken maste vara spelbar.
+          benchWeight: fh ? 0 : 0.15,
+          fm, bs,
+        });
+        if(!res) throw new Error("Ingen laglig trupp gick att bygga inom budgeten");
+        setSt({lage:"klar",res,fel:""});
+      }catch(e){ setSt({lage:"fel",res:null,fel:String(e.message||e)}); }
+    },30);
+  }
+
+  if(budget==null) return(
+    <div style={{...c.weekFlag(),marginTop:`${SP[4]}px`,fontSize:"13px"}}>
+      <span style={c.weekDot(T.warn)}/>
+      <span style={c.weekMuted}>Lagförslag kräver ditt truppvärde, och det finns bara
+        när du hämtat laget med bokmärkesknappen. Utan det vet boten inte vad du har
+        att handla för, och då gissar den hellre inte.</span>
+    </div>
+  );
+
+  const res=st.res;
+  const inXI=res ? new Set(res.xi.xi.map(p=>p.id)) : null;
+  const rad=(p,start)=>(
+    <div key={p.id} style={c.lineupCard(start)}>
+      <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
+      <span style={c.lineupName}>{p.web_name}</span>
+      <span className="num" style={{fontSize:"11px",color:T.dim}}>{tb[p.team]?.short_name}</span>
+      <span className="num" style={{fontSize:"11px",color:T.mut,marginLeft:"auto"}}>£{(p.now_cost/10).toFixed(1)}</span>
+      <span className="num" style={c.lineupXp(res.scoreMap.get(p.id))}>{res.scoreMap.get(p.id).toFixed(1)}</span>
+    </div>
+  );
+
+  return(
+    <div style={{marginTop:`${SP[4]}px`,borderTop:`1px solid ${T.line}`,paddingTop:`${SP[4]}px`}}>
+      <div style={{maxWidth:"320px"}}>
+        <button style={c.btn(st.lage==="raknar")} disabled={st.lage==="raknar"} onClick={bygg}>
+          {st.lage==="raknar" ? "Räknar…" : res ? "Räkna om" : "Föreslå lag"}
+        </button>
+      </div>
+      {st.lage==="fel" &&
+        <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>Lagförslaget misslyckades: {st.fel}</div>}
+      {res && <>
+        <div style={{...c.weekSub,marginTop:`${SP[4]}px`}}>
+          {res.xi.formation} · £{res.kostnad.toFixed(1)}m av £{budget.toFixed(1)}m ·{" "}
+          <strong style={{color:T.ink}}>{res.xi.total.toFixed(1)} xP</strong>
+          {fh ? " i GW"+SEASON.nextGw : " över "+LONG_HORIZON+" omgångar"}
+        </div>
+        <div style={{...c.legendTxt,marginTop:`${SP[2]}px`,maxWidth:"620px",lineHeight:1.6}}>
+          {fh
+            ? <>Byggt för GW{SEASON.nextGw}, den enda omgången med odds bakom sig. Bänken är
+                avsiktligt billigast möjliga: på Free Hit spelar den ändå inte, så varje krona
+                ska ligga i elvan.</>
+            : <>Byggt över {LONG_HORIZON} omgångar. Bara GW{SEASON.nextGw} har odds bakom sig,
+                resten vilar på xG-modellen. Behandla laget som riktning, inte som facit.</>}
+          {" "}Det här är en heuristik, inte ett bevis: {res.byten===0
+            ? "ingen enskild bytning förbättrade laget"
+            : `${res.byten===1?"en bytning":res.byten+" bytningar"} förbättrade laget innan sökningen stannade`}, men en
+          bevisat optimal trupp kräver en lösare vi inte har.
+          {budget-res.kostnad>=0.5 &&
+            <> £{(budget-res.kostnad).toFixed(1)}m blev över, oftast för att klubbgränsen på
+               tre spelare blockerar de uppgraderingar som finns kvar.</>}
+        </div>
+        <div style={c.bLbl}>Startelva</div>
+        <div style={c.lineupGrid}>{res.xi.xi.map(p=>rad(p,true))}</div>
+        <div style={c.bLbl}>Bänk</div>
+        <div style={c.lineupGrid}>{res.squad.filter(p=>!inXI.has(p.id)).map(p=>rad(p,false))}</div>
+      </>}
+    </div>
+  );
+}
+
+function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,bank,squadValue}){
+  const budget = squadValue!=null ? squadValue+bank : null;
   const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
   return(
     <div>
@@ -1568,6 +1660,8 @@ function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail}){
                 <span style={c.weekDot(T.line)}/><span style={c.weekMuted}>{n}</span>
               </div>
             ))}
+            {av.available && (chip.id==="fh"||chip.id==="wc") &&
+              <SquadSuggestion mode={chip.id} bs={bs} fm={fm} tb={tb} budget={budget}/>}
           </div>
         );
       })}
@@ -1892,6 +1986,151 @@ function briefStamp(ts){
     return new Date(ts).toLocaleString("sv-SE",
       {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   }catch{ return ""; }
+}
+
+// ---------------------------------------------------------------------------
+// Lagbyggaren. Foreslar trupp for Free Hit och Wildcard.
+//
+// Att hitta den BEVISAT basta truppen av 667 spelare under fyra samtidiga
+// villkor (budget, 2-5-5-3, max tre per klubb, elva av femton spelar) kraver en
+// riktig ILP-losare. Den drar vi inte in i ett projekt utan byggsteg.
+//
+// Det har ar en heuristik, och den kallas aldrig optimal. For varje laglig
+// formation prissatts elvan med en lagrangeterm, poang minus lambda gange pris,
+// och lambda soks binart tills elvan precis ryms i budgeten. Basta formationen
+// vinner, banken fylls, och en lokal sokning anvander det som blir over.
+// Flera startpunkter kors, och om de landar i samma lag sags det — det ar ett
+// tecken pa att vi ar nara optimum, inte ett bevis for att vi ar dar.
+
+function squadRules(bs){
+  const et=bs.element_types;
+  const select=Object.fromEntries(et.map(t=>[t.id,t.squad_select]));
+  const play=Object.fromEntries(et.map(t=>[t.id,{min:t.squad_min_play,max:t.squad_max_play}]));
+  const teamLimit=bs.game_settings?.squad_team_limit;
+  const size=bs.game_settings?.squad_squadsize;
+  // Reglerna lases ur API:t. Hardkodade 2-5-5-3 vore ett antagande som tyst
+  // slutar galla den dag FPL andrar sig.
+  if(!teamLimit||!size||!et.length) throw new Error("FPL:s truppregler saknas i bootstrap");
+  return {select,play,teamLimit,size};
+}
+
+function legalFormations(rules){
+  const out=[];
+  for(let d=rules.play[2].min;d<=rules.play[2].max;d++)
+    for(let m=rules.play[3].min;m<=rules.play[3].max;m++)
+      for(let f=rules.play[4].min;f<=rules.play[4].max;f++)
+        if(1+d+m+f===11&&d<=rules.select[2]&&m<=rules.select[3]&&f<=rules.select[4])
+          out.push({1:1,2:d,3:m,4:f});
+  return out;
+}
+
+const price=p=>p.now_cost/10;
+
+// Girig plockning efter justerat varde, med klubbgransen respekterad. Returnerar
+// null om behovet inte gick att fylla — det ar ett riktigt nej, inte ett halvt lag.
+function pickBy(pool,need,teamLimit,valueOf,taken,teamCount){
+  const got={1:[],2:[],3:[],4:[]};
+  const left={...need};
+  let kvar=Object.values(left).reduce((a,b)=>a+b,0);
+  for(const p of [...pool].sort((a,b)=>valueOf(b)-valueOf(a))){
+    const t=p.element_type;
+    if(!left[t]||taken.has(p.id)) continue;
+    if((teamCount[p.team]||0)>=teamLimit) continue;
+    got[t].push(p); left[t]--; kvar--;
+    taken.add(p.id);
+    teamCount[p.team]=(teamCount[p.team]||0)+1;
+    if(!kvar) break;
+  }
+  return kvar ? null : got;
+}
+
+const flat=g=>[...g[1],...g[2],...g[3],...g[4]];
+const sumCost=arr=>arr.reduce((a,p)=>a+price(p),0);
+
+function solveSquad({pool,rules,budget,scoreOf,benchWeight,fm,bs}){
+  const scoreMap=new Map(pool.map(p=>[p.id,scoreOf(p)]));
+  const objective=squad=>{
+    const xi=bestXI(squad,fm,bs.element_types,scoreMap);
+    if(!xi) return null;
+    const inXI=new Set(xi.xi.map(p=>p.id));
+    const bank=squad.filter(p=>!inXI.has(p.id)).reduce((a,p)=>a+scoreMap.get(p.id),0);
+    return {xi,varde:xi.total+benchWeight*bank};
+  };
+
+  // Billigaste tankbara bank, sa vi vet hur mycket elvan far kosta.
+  const cheapest=need=>{
+    let sum=0;
+    for(const t of Object.keys(need)){
+      const n=need[t]; if(!n) continue;
+      const cand=pool.filter(p=>p.element_type===+t).sort((a,b)=>price(a)-price(b));
+      if(cand.length<n) return null;
+      sum+=sumCost(cand.slice(0,n));
+    }
+    return sum;
+  };
+
+  let bastaFro=null;
+  for(const form of legalFormations(rules)){
+    const benchNeed={1:rules.select[1]-1,2:rules.select[2]-form[2],
+                     3:rules.select[3]-form[3],4:rules.select[4]-form[4]};
+    if(Object.values(benchNeed).some(v=>v<0)) continue;
+    const golv=cheapest(benchNeed);
+    if(golv==null) continue;
+
+    // Lambda styr hur hart priset straffas. Litet lambda ger ett dyrt lag,
+    // stort ett billigt. Vi soker det minsta lambda som ryms i budgeten.
+    let lo=0,hi=5,xi=null,xiTeams=null;
+    for(let i=0;i<36;i++){
+      const lam=(lo+hi)/2;
+      const tc={}, taken=new Set();
+      const got=pickBy(pool,form,rules.teamLimit,p=>scoreMap.get(p.id)-lam*price(p),taken,tc);
+      if(!got){ hi=lam; continue; }
+      if(sumCost(flat(got))>budget-golv) lo=lam;
+      else { hi=lam; xi=got; xiTeams=tc; }
+    }
+    if(!xi) continue;
+
+    const taken=new Set(flat(xi).map(p=>p.id));
+    const tc={...xiTeams};
+    const kvar=budget-sumCost(flat(xi));
+    // Free Hit: banken spelar aldrig, sa den ska vara sa billig som mojligt.
+    // Wildcard: truppen ar din i fem omgangar, sa banken far kosta.
+    const benchVal=benchWeight>0
+      ? p=>scoreMap.get(p.id)-(1/Math.max(kvar,0.1))*price(p)
+      : p=>-price(p);
+    const bench=pickBy(pool,benchNeed,rules.teamLimit,benchVal,taken,tc);
+    if(!bench) continue;
+
+    const squad=[...flat(xi),...flat(bench)];
+    if(sumCost(squad)>budget+1e-9) continue;
+    const o=objective(squad);
+    if(o&&(!bastaFro||o.varde>bastaFro.varde)) bastaFro={squad,...o,formation:form};
+  }
+  if(!bastaFro) return null;
+
+  // Lokal sokning: byt en spelare i taget mot en battre som ryms i budgeten och
+  // inom klubbgransen. Kors tills ingen enskild bytning langre forbattrar.
+  let squad=bastaFro.squad, varde=bastaFro.varde, xi=bastaFro.xi, byten=0;
+  for(let pass=0;pass<8;pass++){
+    let basta=null;
+    for(const ut of squad){
+      const utan=squad.filter(p=>p.id!==ut.id);
+      const kvar=budget-sumCost(utan);
+      const tc={}; for(const p of utan) tc[p.team]=(tc[p.team]||0)+1;
+      const ids=new Set(utan.map(p=>p.id));
+      for(const inn of pool){
+        if(inn.element_type!==ut.element_type||ids.has(inn.id)) continue;
+        if(price(inn)>kvar) continue;
+        if((tc[inn.team]||0)>=rules.teamLimit) continue;
+        const o=objective([...utan,inn]);
+        if(o&&o.varde>varde+1e-9&&(!basta||o.varde>basta.varde))
+          basta={squad:[...utan,inn],...o};
+      }
+    }
+    if(!basta) break;
+    squad=basta.squad; varde=basta.varde; xi=basta.xi; byten++;
+  }
+  return {squad,xi,varde,kostnad:sumCost(squad),formation:bastaFro.formation,byten,scoreMap};
 }
 
 // Mognadsruta — varje ny funktion sager vad den ar vard just nu.
@@ -2857,7 +3096,7 @@ function App(){
           {!results&&<div style={{fontSize:"13px",color:T.mut,textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
         </div>
       )}
-      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail}/>}
+      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail} bank={bank} squadValue={squadValue}/>}
       {tab==="fixtures"&&<><FixtureTicker starters={starters} fm={fm} tb={tb}/>
         <RotationPlan squad={[...starters,...bench]} fm={fm} bs={bs} gw={gw} tb={tb}/></>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
