@@ -167,13 +167,6 @@ const T = {
 
 // Fixtursvårighet 1–5. Trean stannar neutralt grå så en rad medelmatcher
 // läser som visuell tystnad — GlennOS §01.
-const FDR_RAMP = {
-  1:{bg:"rgba(36,208,122,.18)", fg:"#24D07A"},
-  2:{bg:"rgba(36,208,122,.10)", fg:"#5FD99B"},
-  3:{bg:"rgba(108,118,132,.14)", fg:"#A7B0BD"},
-  4:{bg:"rgba(255,174,51,.14)",  fg:"#FFAE33"},
-  5:{bg:"rgba(255,77,94,.16)",   fg:"#FF4D5E"},
-};
 
 // 4px-grid. Innanför datatäta ytor 8–16, mellan ytor 20–32, mellan
 // sidsektioner 64. Radius hålls stram: 4 kontroller, 8 kort, 12 modal.
@@ -255,10 +248,10 @@ const ODDS = {
 };
 
 // ── Fixture-helpers ────────────────────────────────────────────────────────
-function avgFdr(tid,fm,n=5){const fx=(fm[tid]||[]).slice(0,n);return fx.length?fx.reduce((s,f)=>s+f.diff,0)/fx.length:3;}
-function nextFdr(tid,fm){return(fm[tid]||[])[0]?.diff||3;}
 function nextOpp(tid,fm,tb){const f=(fm[tid]||[])[0];return f?`${tb[f.oppId]?.short_name||"?"}(${f.home?"H":"B"})`:"-";}
-function fxStr(tid,fm,tb,n=5){return(fm[tid]||[]).slice(0,n).map(f=>`GW${f.gw} ${tb[f.oppId]?.short_name}(${f.home?"H":"B"},${f.diff})`).join(" · ");}
+// FDR-siffran ar borttagen: den matte som brus for anfall. Hemma/borta star
+// kvar, for det ar den matchsignal som faktiskt matte nagot.
+function fxStr(tid,fm,tb,n=5){return(fm[tid]||[]).slice(0,n).map(f=>`GW${f.gw} ${tb[f.oppId]?.short_name}(${f.home?"H":"B"})`).join(" · ");}
 
 // ── Status-helpers ──────────────────────────────────────────────────────────
 function isInjured(p){return p.status==="u"||p.status==="s"||p.status==="i"||p.chance_of_playing_next_round===0;}
@@ -266,7 +259,11 @@ function isDoubtful(p){return p.chance_of_playing_next_round!==null&&p.chance_of
 
 // ── Formaterings-helpers ────────────────────────────────────────────────────
 function rewardLbl(xp){return xp>=6?"Hög":xp>=4?"Medel":"Låg";}
-function riskFromFdr(d){return d<=2?"Låg":d<=3?"Medel":"Hög";}
+// Risk mattes forut ur motstandarens FDR. Det talet mattes som brus for
+// anfallsavkastning, sa riskbetyget var ett pastaende utan tackning.
+// Speltid ar den faktor modellen sjalv kallar viktigast: en spelare som inte
+// spelar ger noll oavsett motstand. Det ar den risk som gar att belagga.
+function riskFromMins(m){return m>=0.85?"Låg":m>=0.60?"Medel":"Hög";}
 function pdiffStr(a,b){const d=((a-b)/10).toFixed(1);return d>0?`+£${d}m`:d<0?`-£${Math.abs(d)}m`:"Samma pris";}
 function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
@@ -287,7 +284,7 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
 // Antal spelade omgångar. Sätts när bootstrap laddats. xMins behöver veta hur
 // många chanser en spelare HAFT att spela, annars går andelen inte att räkna.
-const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1, ownFdr: null, selfCal: {factor:1, gws:0} };
+const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1, selfCal: {factor:1, gws:0} };
 
 // Lagets insläppta xG per 90, krympt mot ligasnittet efter hur många omgångar
 // som hunnit spelas — samma disciplin som xMins.
@@ -390,7 +387,8 @@ function buildXgiPrior(bs){
 // den blir felet 31 procent större. Rimligt — FDR är i grunden ett omdöme om
 // hur svår matchen är, vilket hänger ihop med hur mycket man släpper in. För
 // enskilda anfallares avkastning dominerar spelarens eget xGI och FDR blir
-// brus ovanpå. Motståndarens anfallsrating (ownDifficulty) slår INTE FDR.
+// brus ovanpå. En egen rating byggd på motståndarens anfallsstyrka slog
+// INTE FDR heller, och togs bort som död kod.
 //
 // Svep över båda konstanterna lade optimum på hemmafaktor 1.10, alltså exakt
 // den som står här, och lutning 0.20 i stället för 0.26. Den ändringen var
@@ -571,8 +569,6 @@ function scoreDiff(p,fm){
   return estimateXp(p,fm).xp + (15-own)*0.15;
 }
 
-function fdrBg(d){return (FDR_RAMP[d]||FDR_RAMP[3]).bg;}
-function fdrTx(d){return (FDR_RAMP[d]||FDR_RAMP[3]).fg;}
 function xpColor(xp){return xp>=6?T.good:xp>=4?T.brand:xp>=2?T.mut:T.dim;}
 // Ton per fixtureruta. Gront och rott ar tillatet har: forvantade poang ar en
 // verklig numerisk riktning, inte dekoration.
@@ -688,32 +684,6 @@ function buildLeagueTable(fixtures, teams){
 // Så här tidigt är de SÄMRE än FPL:s, vilket vi mätt: lagdata efter en omgång
 // är brus. De visas därför bredvid FPL:s med sin mognad utskriven, inte i
 // stället för dem.
-const OWN_FDR_PSEUDO = 3;
-function buildOwnRatings(bs){
-  const atk={}, def={}, mins={};
-  for(const p of bs.elements){
-    const m=num(p.minutes); if(m<=0) continue;
-    atk[p.team]=(atk[p.team]||0)+num(p.expected_goals)+num(p.expected_assists);
-    def[p.team]=(def[p.team]||0)+num(p.expected_goals_conceded);
-    mins[p.team]=(mins[p.team]||0)+m;
-  }
-  const rate=o=>Object.fromEntries(Object.keys(o).map(t=>[t, mins[t]?o[t]/mins[t]*90*11:0]));
-  const a=rate(atk), d=rate(def);
-  const avg=o=>{const v=Object.values(o).filter(x=>x>0); return v.length?v.reduce((x,y)=>x+y,0)/v.length:1;};
-  const aAvg=avg(a), dAvg=avg(d), g=SEASON.gamesPlayed;
-  const shrink=(v,m)=>((v||m)*g + m*OWN_FDR_PSEUDO)/(g+OWN_FDR_PSEUDO);
-  const out={};
-  for(const t of bs.teams) out[t.id]={atk:shrink(a[t.id],aAvg), def:shrink(d[t.id],dAvg)};
-  out._avg={atk:aAvg, def:dAvg};
-  return out;
-}
-// Svårighet 1–5 för att möta lag `opp`: deras anfall mot vårt försvar och
-// tvärtom, skalat till samma skala som FPL:s för att gå att jämföra.
-function ownDifficulty(ratings, oppId, home){
-  const r=ratings[oppId]; if(!r) return null;
-  const rel=(r.atk/ratings._avg.atk)*(home?0.92:1.08);
-  return Math.max(1, Math.min(5, 3*rel));
-}
 
 // ── Tillförlitlighet ────────────────────────────────────────────────────────
 // Vi bygger funktioner innan datan bär, med flit. Priset för det är att varje
@@ -1174,7 +1144,11 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     if(fxArr.filter(f=>f.gw===gw).length>=2) dgwTeams.add(parseInt(tid));
   const myDGW=[...starters,...bench].filter(p=>dgwTeams.has(p.team));
   const hurt=[...starters,...bench].filter(p=>isInjured(p)||isDoubtful(p));
-  const avgFdr5=starters.reduce((s,p)=>s+avgFdr(p.team,fm,5),0)/starters.length;
+  // FDR-snittet sa ingenting matbart. Modellens egen utsikt gor det, och ar
+  // jamforbar mellan veckor.
+  const xpPerGw=starters.reduce((s,p)=>s+estimateXpOver(p,fm,gw,CHIP_HORIZON),0)/CHIP_HORIZON;
+  const hemma=starters.reduce((s,p)=>s+(fm[p.team]||[]).filter(f=>f.gw>=gw&&f.gw<gw+CHIP_HORIZON&&f.home).length,0);
+  const matcher=starters.reduce((s,p)=>s+(fm[p.team]||[]).filter(f=>f.gw>=gw&&f.gw<gw+CHIP_HORIZON).length,0);
 
   return [
     {
@@ -1214,7 +1188,8 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
       headline:"Ingen siffra — det här är ett omdöme",
       detail:"Wildcard byter hela truppen, och värdet beror på vilket lag du skulle bygga i stället. Det kan modellen inte räkna ut åt dig.",
       notes:[
-        `Ditt lags FDR-snitt kommande ${CHIP_HORIZON} omgångar är ${avgFdr5.toFixed(1)} av 5.`,
+        `Din startelva skattas till ${xpPerGw.toFixed(1)} xP per omgång de kommande ${CHIP_HORIZON}.`,
+        `${hemma} av ${matcher} kommande matcher spelas hemma — den enda matchfaktor som mätbart påverkar anfallet.`,
         hurt.length?`${hurt.length} spelare i truppen är skadade eller osäkra.`:`Ingen i truppen är skadad eller osäker.`,
         `${38-gw} omgångar återstår av säsongen.`,
       ],
@@ -1358,26 +1333,26 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
   const verdict = net => net<=0 ? "nej" : net<0.5 ? "knappt" : "ja";
 
   const q=trySwap(scoreShort);
-  if(q){const{out,inn}=q;const fdr=nextFdr(inn.team,fm);const ix=estimateXp(inn,fm);const ox=estimateXp(out,fm);
+  if(q){const{out,inn}=q;const ix=estimateXp(inn,fm);const ox=estimateXp(out,fm);
     recs.push({type:"quick",label:"Snabb fix",title:`${inn.web_name} in direkt`,out:out.web_name,inn:inn.web_name,
       priceDiff:pdiffStr(inn.now_cost,out.now_cost),
       reason:`${inn.web_name} (${tb[inn.team]?.short_name}) skattas till ${ix.xp.toFixed(1)} xP nästa omgång mot ${nextOpp(inn.team,fm,tb)} — speltid ${(ix.parts.mins*100).toFixed(0)}%. Ersätter ${out.web_name} (${ox.xp.toFixed(1)} xP, speltid ${(ox.parts.mins*100).toFixed(0)}%).`,
-      fixtures:fxStr(inn.team,fm,tb,3),risk:riskFromFdr(fdr),reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp,
+      fixtures:fxStr(inn.team,fm,tb,3),risk:riskFromMins(ix.parts.mins),reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp,
       gain:ix.xp-ox.xp, cost, net:(ix.xp-ox.xp)-cost, horizon:"denna omgång", verdict:verdict((ix.xp-ox.xp)-cost)});}
 
   const l=trySwap(scoreLong);
-  if(l){const{out,inn}=l;const fdr5=avgFdr(inn.team,fm,5).toFixed(1);const ix=estimateXpLong(inn,fm);const ox5=estimateXpLong(out,fm);const gain5=(ix-ox5)*5;
+  if(l){const{out,inn}=l;const ix=estimateXpLong(inn,fm);const ox5=estimateXpLong(out,fm);const gain5=(ix-ox5)*5;
     recs.push({type:"long",label:"Långsiktig",title:`${inn.web_name} för kommande omgångar`,out:out.web_name,inn:inn.web_name,
       priceDiff:pdiffStr(inn.now_cost,out.now_cost),
-      reason:`${inn.web_name} har snitt-FDR ${fdr5} kommande 5 omgångar och skattas till ${ix.toFixed(1)} xP/GW över perioden. ${out.web_name} har sämre utsikter (FDR-snitt ${avgFdr(out.team,fm,5).toFixed(1)}).`,
-      fixtures:fxStr(inn.team,fm,tb,5),risk:riskFromFdr(avgFdr(inn.team,fm,3)),reward:rewardLbl(ix),gwImpact:`GW${gw}–${gw+4}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix,
+      reason:`${inn.web_name} skattas till ${ix.toFixed(1)} xP per omgång över de kommande fem, mot ${out.web_name}s ${ox5.toFixed(1)}. Speltid ${(xMins(inn)*100).toFixed(0)}% mot ${(xMins(out)*100).toFixed(0)}%.`,
+      fixtures:fxStr(inn.team,fm,tb,5),risk:riskFromMins(xMins(inn)),reward:rewardLbl(ix),gwImpact:`GW${gw}–${gw+4}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix,
       gain:gain5, cost, net:gain5-cost, horizon:"fem omgångar", verdict:verdict(gain5-cost)});}
 
   const d=trySwap(scoreDiff,p=>num(p.selected_by_percent)<=15);
-  if(d){const{out,inn}=d;const own=num(inn.selected_by_percent).toFixed(1);const fdr=nextFdr(inn.team,fm);const ix=estimateXp(inn,fm);const ox2=estimateXp(out,fm);
+  if(d){const{out,inn}=d;const own=num(inn.selected_by_percent).toFixed(1);const ix=estimateXp(inn,fm);const ox2=estimateXp(out,fm);
     recs.push({type:"diff",label:"Differentiell",title:`${inn.web_name} — bara ${own}% äger`,out:out.web_name,inn:inn.web_name,
       priceDiff:pdiffStr(inn.now_cost,out.now_cost),
-      reason:`${inn.web_name} ägs av bara ${own}% men skattas till ${ix.xp.toFixed(1)} xP nästa GW mot ${nextOpp(inn.team,fm,tb)} (FDR ${fdr}). Rankningshöjande om det träffar. Ersätter ${out.web_name}.`,
+      reason:`${inn.web_name} ägs av bara ${own}% men skattas till ${ix.xp.toFixed(1)} xP nästa GW mot ${nextOpp(inn.team,fm,tb)}. Rankningshöjande om det träffar. Ersätter ${out.web_name}.`,
       fixtures:fxStr(inn.team,fm,tb,3),risk:"Hög",reward:rewardLbl(ix.xp),gwImpact:`GW${gw}`,own:inn.selected_by_percent,news:inn.news||"",xp:ix.xp,
       gain:ix.xp-ox2.xp, cost, net:(ix.xp-ox2.xp)-cost, horizon:"denna omgång", verdict:verdict((ix.xp-ox2.xp)-cost)});}
   return recs;
@@ -2840,7 +2815,7 @@ function CaptainTab({starters,fm,tb}){
     <div>
       <div style={c.secTitle}>Rankad på xP-modell (speltidsandel, xG/xA, clean sheet, hemmaplan)</div>
       {ranked.map((p,i)=>{
-        const top=i===0;const fdr=nextFdr(p.team,fm);
+        const top=i===0;const f=(fm[p.team]||[])[0];
         return(
           <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?T.warnBg:T.card,border:`.5px solid ${top?T.warn:T.line}`}}>
             <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?T.warn:T.mut,width:"28px",textAlign:"center"}}>{top?"©":i+1}</div>
@@ -2852,7 +2827,9 @@ function CaptainTab({starters,fm,tb}){
               <div style={{fontSize:"13px",color:xpColor(p._xp),fontWeight:"600"}}>{p._xp.toFixed(1)} xP</div>
               <div style={{fontSize:"11px",color:T.good}}>Speltid {(xMins(p)*100).toFixed(0)}%</div>
             </div>
-            <div style={{background:fdrBg(fdr),color:fdrTx(fdr),borderRadius:"8px",padding:"4px 10px",fontSize:"12px",fontWeight:"500"}}>FDR {fdr}</div>
+            {/* Hemma/borta i stallet for FDR: det ar den matchsignal som matte
+                nagot for anfallsavkastning. */}
+            <div style={{background:f?.home?"rgba(36,208,122,.14)":"rgba(167,176,189,.10)",color:f?.home?"#7DE0AC":T.mut,borderRadius:"8px",padding:"4px 10px",fontSize:"12px",fontWeight:"500"}}>{f?(f.home?"Hemma":"Borta"):"–"}</div>
           </div>
         );
       })}
@@ -3071,7 +3048,6 @@ function App(){
         SEASON.gamesPlayed = bs.events.filter(e=>e.finished).length;
         SEASON.xgc = buildTeamXgc(bs);
         SEASON.xgiPrior = buildXgiPrior(bs);
-        SEASON.ownFdr = buildOwnRatings(bs);
         const squadGw=entry.current_event;
         if(!squadGw)throw new Error("Laget har ingen spelad omgång ännu (entry.current_event saknas) — inget att planera utifrån.");
         const next=bs.events.find(e=>e.is_next);
