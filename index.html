@@ -375,6 +375,27 @@ function buildXgiPrior(bs){
 // bookmakerns odds för GW2 (20 lag). Den gamla koden hade 0.88/1.12, alltså
 // ett hemmaövertag på 27% — anpassningen säger 10%. Bör räknas om när fler
 // omgångar spelats; underlaget är tunt.
+// MÄTT OCH LÄMNAD ORÖRD (GW9). Samma metod som på anfallssidan, mot de
+// marginalkalibrerade nolla-oddsen för alla 20 lag:
+//
+//   xgc x hemma x FDR (denna)           RMSE 0.0574   ← bäst
+//   xgc x FDR                           RMSE 0.0637
+//   ligasnitt x hemma x motst. anfall   RMSE 0.0647
+//   xgc x hemma x motst. anfall         RMSE 0.0667
+//   bara ligasnitt                      RMSE 0.0685
+//   xgc x hemma                         RMSE 0.0753
+//   bara xgc                            RMSE 0.0865
+//
+// FDR-lutningen HJÄLPER här, tvärtemot anfallssidan där den skadade: utan
+// den blir felet 31 procent större. Rimligt — FDR är i grunden ett omdöme om
+// hur svår matchen är, vilket hänger ihop med hur mycket man släpper in. För
+// enskilda anfallares avkastning dominerar spelarens eget xGI och FDR blir
+// brus ovanpå. Motståndarens anfallsrating (ownDifficulty) slår INTE FDR.
+//
+// Svep över båda konstanterna lade optimum på hemmafaktor 1.10, alltså exakt
+// den som står här, och lutning 0.20 i stället för 0.26. Den ändringen var
+// värd 2,2 procent på 20 datapunkter med bara 11 distinkta odds-nivåer, och
+// är därmed inom bruset. Överanpassa inte. Mät om när underlaget vuxit.
 const CS_HOME_FACTOR = 1.10, CS_FDR_TILT = 0.26;
 
 // Clean sheet-sannolikhet för spelarens lag i en given omgång (0..1).
