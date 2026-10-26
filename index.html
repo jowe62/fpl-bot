@@ -1592,7 +1592,7 @@ function SquadSuggestion({mode,bs,fm,tb,budget}){
           benchWeight: fh ? 0 : 0.15,
           fm, bs,
         });
-        if(!res) throw new Error("Ingen laglig trupp gick att bygga inom budgeten");
+        if(!res) throw new Error("Det gick inte att få ihop en giltig trupp inom budgeten");
         setSt({lage:"klar",res,fel:""});
       }catch(e){ setSt({lage:"fel",res:null,fel:String(e.message||e)}); }
     },30);
@@ -2127,12 +2127,30 @@ function solveSquad({pool,rules,budget,scoreOf,benchWeight,fm,bs}){
     const taken=new Set(flat(xi).map(p=>p.id));
     const tc={...xiTeams};
     const kvar=budget-sumCost(flat(xi));
-    // Free Hit: banken spelar aldrig, sa den ska vara sa billig som mojligt.
-    // Wildcard: truppen ar din i fem omgangar, sa banken far kosta.
-    const benchVal=benchWeight>0
-      ? p=>scoreMap.get(p.id)-(1/Math.max(kvar,0.1))*price(p)
-      : p=>-price(p);
-    const bench=pickBy(pool,benchNeed,rules.teamLimit,benchVal,taken,tc);
+    let bench;
+    if(benchWeight>0){
+      // Wildcard: truppen ar din i fem omgangar, sa banken ska vara spelbar.
+      // Men den MASTE rymmas i det som blev over. Tidigare rankades banken pa
+      // poang minus ett prisstraff som skalades mot kvarvarande pengar, utan
+      // nagon budgetsparr alls — med gott om pengar kvar blev straffet nara
+      // noll och den plockade de dyraste spelarna, sprangde budgeten, och
+      // varenda formation kastades. Losaren returnerade null for alla
+      // budgetar, aven 104,9. Samma lambdasokning som for elvan loser det:
+      // den letar den dyraste bank som fortfarande ryms.
+      let lo=0, hi=5;
+      for(let i=0;i<30;i++){
+        const lam=(lo+hi)/2;
+        const got=pickBy(pool,benchNeed,rules.teamLimit,
+          p=>scoreMap.get(p.id)-lam*price(p), new Set(taken), {...tc});
+        if(!got){ hi=lam; continue; }
+        if(sumCost(flat(got))>kvar) lo=lam; else { hi=lam; bench=got; }
+      }
+      // Golvet raknades ur de billigaste spelarna och ryms alltid i kvar,
+      // sa sokningen hittar alltid nagot.
+    } else {
+      // Free Hit: banken spelar aldrig, sa varje krona ska ligga i elvan.
+      bench=pickBy(pool,benchNeed,rules.teamLimit,p=>-price(p),taken,tc);
+    }
     if(!bench) continue;
 
     const squad=[...flat(xi),...flat(bench)];
