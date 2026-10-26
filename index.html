@@ -1068,11 +1068,19 @@ function chipAvailability(bs, history, gw){
 // Jämförelsen mellan omgångar är därför riktningsgivande, inte exakt.
 const CHIP_HORIZON = 5;
 
-function chipGainsOverHorizon(starters, bench, fm, gw){
+// useOdds=false ger samma modell for alla fem omgangarna. Det ar vad
+// jamforelsen MASTE anvanda: bara nasta omgang har odds, och att lata den
+// ensam fa oddslyftet ar att jamfora tva modeller i stallet for tva
+// omgangar. Uppmatt pa en vanlig trupp lyfter odds Triple Captain 18%,
+// medan hela spannet mellan de fem omgangarna ar mindre an sa. Modellbytet
+// avgjorde alltsa vilken omgang som "vann".
+// useOdds=true anvands bara for talet som visas for den har omgangen, dar
+// odds ar den basta tillgangliga uppskattningen.
+function chipGainsOverHorizon(starters, bench, fm, gw, useOdds){
   const squad=[...starters,...bench];
   const out=[];
   for(let g=gw; g<gw+CHIP_HORIZON; g++){
-    const isNext=g===SEASON.nextGw;
+    const isNext=useOdds && g===SEASON.nextGw;
     const xp=p=>estimateXpAt(p,fm,g,isNext).xp;
     // Bench Boost: bänkens poäng räknas, alltså exakt bänkens xP.
     const bb=bench.reduce((s,p)=>s+xp(p),0);
@@ -1088,14 +1096,34 @@ function chipGainsOverHorizon(starters, bench, fm, gw){
 }
 
 function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
-  const horizon=chipGainsOverHorizon(starters,bench,fm,gw);
-  const now=horizon[0];
+  // Jamforelsen gors utan odds, sa alla fem omgangar matas med samma matsticka.
+  const horizon=chipGainsOverHorizon(starters,bench,fm,gw,false);
+  // Talet som VISAS for den har omgangen far odds, eftersom det ar den basta
+  // uppskattningen vi har for just nasta omgang.
+  const now=chipGainsOverHorizon(starters,bench,fm,gw,true)[0];
   const best=k=>horizon.reduce((a,b)=>b[k]>a[k]?b:a);
-  const line=(k,unit)=>{
+  // Under det har spannet sager vi att omgangarna inte gar att skilja at.
+  // Tröskeln ar ett omdome, inte en uträkning: en halv xP ar mindre an
+  // modellens egen osakerhet sa har tidigt pa sasongen.
+  const SKILJER_SIG = 0.5;
+  // nollText: nar varje omgang ar exakt noll finns ett tydligare besked an
+  // "de ligger inom 0.0 xP fran varandra". Noll betyder nagot konkret.
+  const line=(k,unit,nollText)=>{
+    const v=horizon.map(r=>r[k]);
+    if(nollText && Math.max(...v)===0) return nollText;
+    const spann=Math.max(...v)-Math.min(...v);
+    // Fem identiska varden ar ingen jamforelse. Reduce:n nedan skulle valja
+    // den forsta posten och darmed pasta att den har omgangen ar bast, nar
+    // sanningen ar att den bara star forst i listan. Free Hit hamnar har
+    // nastan varje vecka: har ingen spelare blank match sa ar alla fem noll.
+    if(spann < SKILJER_SIG)
+      return `Ingen av de ${CHIP_HORIZON} kommande omgångarna sticker ut — de ligger inom ${spann.toFixed(1)} ${unit} från varandra.`;
     const b=best(k);
     return b.gw===gw
       ? `Bästa läget av de ${CHIP_HORIZON} kommande omgångarna är den här.`
-      : `GW${b.gw} ser bättre ut: ${b[k].toFixed(1)} ${unit} mot ${now[k].toFixed(1)} nu.`;
+      // "nu"-talet ar den oddsfria varianten, inte det som star i rubriken.
+      // Utan parentesen ser de tva talen ut som en motsagelse.
+      : `GW${b.gw} ser bättre ut: ${b[k].toFixed(1)} ${unit} mot ${horizon[0][k].toFixed(1)} nu (båda räknade utan odds).`;
   };
 
   const dgwTeams=new Set();
@@ -1129,7 +1157,8 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
       headline: now.blanks
         ? `${now.blanks} av dina startspelare saknar match — ${now.fh.toFixed(1)} xP uteblir`
         : `Alla dina startspelare har match den här omgången`,
-      detail:line("fh","xP"),
+      detail:line("fh","xP",
+        `Ingen av de ${CHIP_HORIZON} kommande omgångarna har spelare utan match, så chipet är inte värt något i någon av dem.`),
       notes:[`Free Hit lönar sig när många av dina spelare är utan match. Vinsten ovan är vad du förlorar utan chipet, inte vad ett nytt lag skulle ge.`],
     },
     {
@@ -1633,9 +1662,11 @@ function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,bank,squadValue}){
     <div>
       <div style={c.secTitle}>Vad varje chip är värt den här omgången</div>
       <div style={{...c.legendTxt,marginBottom:`${SP[5]}px`,maxWidth:"620px",lineHeight:1.6}}>
-        Siffrorna är den xP chipet tillför, inte en tröskel. Bara GW{SEASON.nextGw}{" "}
-        vilar på odds — jämförelsen mot senare omgångar går på xG-modellen och är
-        riktningsgivande, inte exakt.
+        Siffrorna är den xP chipet tillför, inte en tröskel. Talet för den här
+        omgången vilar på odds. Jämförelsen mellan omgångar görs däremot helt utan
+        odds, eftersom bara GW{SEASON.nextGw} har några — annars skulle den här
+        omgången vinna på att mätas med en annan modell än de övriga. Jämförelsen
+        är alltså riktningsgivande, inte exakt.
       </div>
       {chips.map(chip=>{
         const av=chipAvail[chip.id]||{available:true,reason:""};
