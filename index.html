@@ -2910,39 +2910,85 @@ function RotationPlan({squad,fm,bs,gw,tb}){
   );
 }
 
+// Fixturtickern. Fargas INTE av FPL:s FDR langre.
+//
+// Mätt mot marginalkalibrerade odds for GW9: FDR hjalper for nollan men
+// SKADAR for anfallet — pa anfallssidan blev modellen samre med FDR an helt
+// utan matchjustering. Att farga hela truppen efter ett tal som ar brus for
+// halva den var missvisande.
+//
+// Cellen fargas nu av spelarens egen xP for just den omgangen. Det ar
+// positionsanpassat av sig sjalvt: en forsvarares xP bar nolla-sannolikheten
+// (matt battre an FDR), en anfallares bar xGI och hemmaplan.
+//
+// Och fargen sätts mot SPELARENS EGET SNITT over fonstret, inte mot ett
+// absolut varde. Annars blir Haaland gron i varenda ruta och Rudoni rod i
+// varenda, och tickern slutar visa matcher och borjar visa prislappar.
+// Gront betyder "ovanligt bra omgang for honom", inte "bra spelare".
+function fxTone(kvot){
+  if(kvot==null)   return {bg:"transparent",          fg:T.dim};
+  if(kvot>=1.20)   return {bg:"rgba(36,208,122,.22)", fg:"#5FE3A1"};
+  if(kvot>=1.07)   return {bg:"rgba(36,208,122,.12)", fg:"#7DE0AC"};
+  if(kvot>=0.93)   return {bg:"rgba(167,176,189,.10)",fg:T.mut};
+  if(kvot>=0.80)   return {bg:"rgba(255,174,51,.16)", fg:T.warn};
+  return                  {bg:"rgba(255,77,94,.16)",  fg:T.bad};
+}
+
 function FixtureTicker({starters,fm,tb}){
   const gws=[...new Set(starters.flatMap(p=>(fm[p.team]||[]).slice(0,5).map(f=>f.gw)))].sort((a,b)=>a-b).slice(0,5);
-  const sorted=[...starters].sort((a,b)=>avgFdr(a.team,fm,5)-avgFdr(b.team,fm,5));
+  // xP per spelare och omgang, plus spelarens eget snitt att jamfora mot.
+  const rader=starters.map(p=>{
+    const xps=gws.map(g=>{
+      const har=(fm[p.team]||[]).some(f=>f.gw===g);
+      return har ? estimateXpAt(p,fm,g,g===SEASON.nextGw).xp : null;
+    });
+    const spelade=xps.filter(v=>v!=null);
+    const snitt=spelade.length? spelade.reduce((a,b)=>a+b,0)/spelade.length : 0;
+    return {p, xps, snitt, summa:spelade.reduce((a,b)=>a+b,0)};
+  }).sort((a,b)=>b.summa-a.summa);
+
   return(
     <div>
-      <div style={c.secTitle}>Sorterat på FDR-snitt (bäst överst)</div>
+      <div style={c.secTitle}>Sorterat på total xP över fönstret (bäst överst)</div>
+      <div style={{...c.legendTxt,maxWidth:"640px",lineHeight:1.6,marginBottom:`${SP[4]}px`}}>
+        Färgen visar spelarens xP den omgången jämfört med hans eget snitt över de
+        kommande fem. Grönt betyder ovanligt bra omgång för just honom, inte att han
+        är en bra spelare. Siffran i rutan är hans xP.
+        {" "}FPL:s FDR används inte: den mättes hjälpa för hållen nolla men göra
+        anfallsmodellen sämre än ingen matchjustering alls, så den var missvisande
+        för halva truppen.
+      </div>
       <div className="scrollx" style={{overflowX:"auto"}}>
         <table className="gwtable" style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
           <thead><tr>
             <th style={{textAlign:"left",paddingBottom:"8px",color:T.mut,fontWeight:"500",paddingRight:"8px",minWidth:"80px"}}>Spelare</th>
-            {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:T.mut,fontWeight:"500",minWidth:"60px"}}>GW{g}</th>)}
-            <th style={{textAlign:"right",paddingBottom:"8px",color:T.mut,fontWeight:"500"}}>Snitt</th>
+            {gws.map(g=><th key={g} style={{textAlign:"center",paddingBottom:"8px",color:T.mut,fontWeight:"500",minWidth:"66px"}}>GW{g}</th>)}
+            <th style={{textAlign:"right",paddingBottom:"8px",color:T.mut,fontWeight:"500"}}>Totalt</th>
           </tr></thead>
           <tbody>
-            {sorted.map(p=>{
-              const avg=avgFdr(p.team,fm,5);
-              return(
-                <tr key={p.id} style={{borderTop:`1px solid ${T.line}`}}>
-                  <td style={{padding:"5px 8px 5px 0"}}>
-                    <div style={{fontWeight:"500",fontSize:"13px",color:T.ink}}>{p.web_name}</div>
-                    <div style={{fontSize:"11px",color:T.mut}}>{tb[p.team]?.short_name}</div>
-                  </td>
-                  {gws.map(g=>{
-                    const f=(fm[p.team]||[]).find(fx=>fx.gw===g);
-                    if(!f)return<td key={g} data-l={"GW"+g} style={{textAlign:"center"}}><span style={{color:T.line}}>–</span></td>;
-                    return(<td key={g} data-l={"GW"+g} style={{textAlign:"center",padding:"3px 2px"}}>
-                      <div style={{background:fdrBg(f.diff),color:fdrTx(f.diff),borderRadius:"5px",padding:"2px 5px",fontSize:"11px",fontWeight:"500",display:"inline-block",whiteSpace:"nowrap"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</div>
-                    </td>);
-                  })}
-                  <td data-l="Snitt" style={{textAlign:"right",paddingLeft:"8px"}}><span style={{fontSize:"12px",fontWeight:"500",color:avg<=2.5?T.good:avg<=3.5?T.warn:T.bad}}>{avg.toFixed(1)}</span></td>
-                </tr>
-              );
-            })}
+            {rader.map(({p,xps,snitt,summa})=>(
+              <tr key={p.id} style={{borderTop:`1px solid ${T.line}`}}>
+                <td style={{padding:"5px 8px 5px 0"}}>
+                  <div style={{fontWeight:"500",fontSize:"13px",color:T.ink}}>{p.web_name}</div>
+                  <div style={{fontSize:"11px",color:T.mut}}>{tb[p.team]?.short_name}</div>
+                </td>
+                {gws.map((g,i)=>{
+                  const f=(fm[p.team]||[]).find(fx=>fx.gw===g);
+                  const xp=xps[i];
+                  if(!f||xp==null) return <td key={g} data-l={"GW"+g} style={{textAlign:"center"}}><span style={{color:T.line}}>–</span></td>;
+                  const ton=fxTone(snitt>0? xp/snitt : null);
+                  return(<td key={g} data-l={"GW"+g} style={{textAlign:"center",padding:"3px 2px"}}>
+                    <div style={{background:ton.bg,color:ton.fg,borderRadius:"5px",padding:"3px 5px",fontSize:"11px",fontWeight:"600",display:"inline-block",whiteSpace:"nowrap"}}>
+                      <span className="num">{xp.toFixed(1)}</span>
+                      <span style={{color:T.dim,fontWeight:"400",marginLeft:"4px"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</span>
+                    </div>
+                  </td>);
+                })}
+                <td data-l="Totalt" style={{textAlign:"right",paddingLeft:"8px"}}>
+                  <span className="num" style={{fontSize:"12px",fontWeight:"600",color:xpColor(snitt)}}>{summa.toFixed(1)}</span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
