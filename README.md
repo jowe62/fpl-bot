@@ -5,9 +5,9 @@ premiumsajterna gör, fast anpassad för ett lag och utan prenumeration.
 
 Kärnan är en xP-modell, alltså förväntade poäng per spelare. Den bygger på
 sannolikheten att spelaren faktiskt spelar, xG och xA per 90 minuter,
-sannolikheten för hållen nolla och hur svårt motståndet är. Ovanpå ligger
-riktiga bookmakerodds på målskytt och hållen nolla. Modellen fattar besluten:
-kapten, byten, startelva, när chips ska spelas.
+sannolikheten för hållen nolla, och om matchen spelas hemma eller borta.
+Ovanpå ligger riktiga bookmakerodds på målskytt och hållen nolla. Modellen
+fattar besluten: kapten, byten, startelva, när chips ska spelas.
 
 ## Varför den är byggd som den är
 
@@ -20,6 +20,31 @@ ut i stället för att i smyg falla tillbaka på xG-proxyn. Om ett spelarnamn fr
 bookmakern inte går att matcha mot FPL:s register rapporteras det som omatchat,
 i stället för att gissa på närmaste träff. Den andra regeln är att varje
 funktion som vilar på tunn data säger hur tunn den är.
+
+## Vad jag tog bort när jag mätte
+
+Modellen vägde tidigare in FPL:s egen svårighetsgrad, FDR, på båda sidor. Jag
+mätte den mot bookmakerns marginalkalibrerade odds och tog bort den från halva
+modellen.
+
+På anfallssidan, 258 spelare med minst 180 spelade minuter, var FDR sämre än
+att inte justera för motståndet alls. Att i stället använda lagens egen
+försvarsdata hjälpte inte heller. Det som hjälpte var hemma eller borta, och
+bara det. Felet föll från 0,2297 till 0,2085.
+
+På clean sheet-sidan hjälper FDR tvärtom. Utan den blir felet 31 procent
+större, och dagens konfiguration slog alla sex alternativ jag provade. Där
+rörde jag ingenting.
+
+Det är inte lika motsägelsefullt som det låter. FDR är i grunden ett omdöme om
+hur svår matchen är, och det hänger ihop med hur mycket ett lag släpper in. För
+en enskild anfallares avkastning dominerar spelarens eget xG och xA, och då
+blir FDR brus ovanpå.
+
+Konsekvensen går längre än en konstant. Fixturöversikten färgades av FDR och
+färgas nu av varje spelares egen xP jämfört med hans eget snitt. Riskbetyget i
+bytesförslagen kom ur FDR och kommer nu ur speltid. Ett omdöme om motståndet
+som inte går att belägga ska inte stå i gränssnittet som om det vore ett mått.
 
 ## Vigg
 
