@@ -21,6 +21,29 @@ bookmakern inte går att matcha mot FPL:s register rapporteras det som omatchat,
 i stället för att gissa på närmaste träff. Den andra regeln är att varje
 funktion som vilar på tunn data säger hur tunn den är.
 
+## Slår den en gissning?
+
+Det är den enda frågan som betyder något, och den går att svara på. Boten
+sparar sin egen prognos före varje deadline och jämför mot utfallet efteråt.
+
+Snittfel per spelare och omgång, GW2 till GW8:
+
+| Metod | Fel |
+|---|---|
+| Modellen | 2,49 |
+| Gissa alltid 2 poäng | 3,06 |
+| Spelarens snitt hittills | 3,60 |
+| Förra omgångens poäng | 3,68 |
+| Alltid noll | 3,99 |
+
+Modellen slår varje naiv gissning, 19 procent bättre än den bästa av dem. Att
+"gissa 2" är svårast att slå är ingen slump. De flesta spelare landar kring två
+poäng för att ha startat matchen.
+
+Den siffran står nu i gränssnittet bredvid modellens eget fel, räknad per
+omgång över exakt samma spelare. Förut stod det bara att felet var rimligt.
+Rimligt mot vad, stod det inte.
+
 ## Vad jag tog bort när jag mätte
 
 Modellen vägde tidigare in FPL:s egen svårighetsgrad, FDR, på båda sidor. Jag

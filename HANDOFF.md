@@ -173,8 +173,9 @@ gång per säsongshalva) och använda chips ur `/entry/{id}/history/`. Använda
 markeras SLUT i stället för att få en rekommendation. GW20 återställer
 tillgängligheten för andra halvan.
 
-Obs: chip-rådgivarens *tröskelvärden* (`avgTeamFdr3 > 3.3` → "KÖR NU") är
-handplockade utan stöd. De är inte verifierade mot något.
+Obs: de gamla tröskelvärdena (`avgTeamFdr3 > 3.3` → "KÖR NU") är **borttagna**.
+De var handplockade utan stöd. Återinför dem inte. Chip-värdet räknas ut, se
+nedan.
 
 ## Template-XI
 `templateXI()` bygger den mest ägda lagliga elvan och startvyn visar hur många av
@@ -188,8 +189,14 @@ Varje chip jämförs också mot de fem kommande omgångarna.
 
 **Wildcard får ingen siffra** och ska inte ges en. Det byter hela truppen och
 värdet beror på vilket lag man skulle bygga i stället — modellen kan inte räkna
-ut det. Den redovisar FDR-snitt, skadade och omgångar kvar, och säger att
-beslutet är ett omdöme.
+ut det. Den redovisar startelvans xP per omgång, andelen hemmamatcher, skadade
+och omgångar kvar, och säger att beslutet är ett omdöme.
+
+**Free Hit får sin siffra från lagbyggaren.** Värdet är gapet mellan bästa
+endagstrupp budgeten räcker till och den elva du redan har. Det gamla måttet
+("vad du förlorar på spelare utan match") missade det vanligaste läget: att
+flera lag har lätta matcher och du inte äger deras nyckelspelare. Kortet visar
+ingen siffra förrän knappen tryckts, eftersom talet kräver truppvärdet.
 
 De gamla trösklarna (`avgTeamFdr3 > 3.3`, `benchXp >= 14`) var handplockade utan
 stöd, och en "för"-punkt påstod att Bench Boost ger 6–8 poäng i snitt utan
@@ -299,7 +306,8 @@ texten räcker INTE, det visuella bär detaljer som inte går att läsa sig till
   nyanser: hover är ljusare (300), press mörkare (700). Blanda inte ihop dem.
 - Lime är ENDA varumärkesaccenten — primär åtgärd, aktivt läge, eget lag.
   Grönt och rött bara för verklig numerisk riktning, aldrig dekoration.
-- FDR-rampen har neutralt grå trea så en rad medelmatcher läser som tystnad.
+- FDR-rampen är borttagen. Fixturöversikten färgas av `fxTone`, som jämför
+  spelarens xP mot hans eget snitt över fönstret.
 - Archivo för text, IBM Plex Mono för varje siffra, alltid `tabular-nums`.
 - 4px-grid i `SP`, radius i `R`.
 
@@ -354,9 +362,53 @@ egen höjd som `{type:"glennos:height"}`. John lägger in lyssnaren i Webflow
 ## Utseende (äldre anteckningar)
 Ett tokenobjekt `T` överst i filen håller hela paletten — mörkt granittema,
 varm gråröd sten snarare än blå skiffer, med dova signalfärger. Byt tema där
-och i `POS_TINT`, `fdrBg`, `fdrTx` och `xpColor`, inte inline. Filen har haft
+och i `POS_TINT`, `fxTone`, `xpTone` och `xpColor`, inte inline. Filen har haft
 82 hårdkodade färger utspridda i JSX; en av dem gjorde spelarnamnen i
-FDR-tabellen osynliga när temat byttes. Lägg inte tillbaka några.
+fixturtabellen osynliga när temat byttes. Lägg inte tillbaka några.
+
+## Vad som är mätt, och vad som inte är det (GW9)
+
+Allt nedan är mätt mot riktiga data, inte resonerat fram. Gör om mätningen
+innan du ändrar något av det.
+
+**Modellen slår varje naiv gissning.** MAE per spelare och omgång, GW2–GW8 mot
+verkligt utfall: modellen 2.49, gissa alltid 2 poäng 3.06, spelarens snitt
+hittills 3.60, förra omgångens poäng 3.68, alltid 0 3.99. Måttstocken "gissa 2"
+räknas nu ut i Facit per omgång över exakt samma spelare, så jämförelsen är
+parad. Ett snittfel utan måttstock säger ingenting — skriv aldrig "rimligt" om
+ett tal utan att visa alternativet.
+
+**FDR är borttagen från anfallssidan.** Mätt mot marginalkalibrerade odds för
+GW9, 258 spelare: ingen justering 0.2297, FPL:s FDR 0.2308, egen xGC-rating
+0.2308, FDR + hemmaplan 0.2154, xGC + hemmaplan 0.2136, **bara hemmaplan
+0.2115**. Båda måtten på motståndarstyrka gjorde modellen sämre. Hemmafaktorn
+svepte 1.00–1.30 med platt botten 1.16–1.25, satt till 1.20.
+
+**Clean sheet-sidan är mätt och orörd.** Samma metod mot avviggade nolla-odds
+för 20 lag: dagens `xgc × hemma × FDR` gav 0.0574 och slog alla sex alternativ.
+Utan FDR blir felet 31 procent större. FDR hjälper alltså för hållen nolla och
+skadar för anfall. Optimum för konstanterna låg på hemmafaktor 1.10 (exakt
+dagens) och lutning 0.20 mot dagens 0.26 — 2,2 procent på 20 datapunkter,
+alltså inom bruset. Ändra inte.
+
+**Död kod borttagen:** `buildOwnRatings` och `ownDifficulty` räknades ut vid
+varje sidladdning och anropades aldrig, och slog inte FDR på någondera sidan.
+Med dem gick `FDR_RAMP`, `fdrBg`, `fdrTx`, `avgFdr`, `nextFdr`, `riskFromFdr`
+och `OWN_FDR_PSEUDO`.
+
+**Risk mäts på speltid**, inte på motståndarens FDR. En spelare som inte spelar
+ger noll oavsett motstånd, och det är den risk som går att belägga.
+
+**Truppvärdet inkluderar banken.** Mätt över fyra omgångar: `value − bank`
+landar på spelarnas prissumma inom 0,1–0,2, medan `value` utan avdrag avviker
+med exakt bankens belopp. Lagbyggarens budget är alltså `squadValue`, inte
+`squadValue + bank`. Det senare gav 4,3m för mycket och lag som inte gick att
+köpa.
+
+**Inte mätt:** bonusmodellen (`ict_index / 38 × 0.15`, en ren gissning; `bps`
+finns i API:t och är vad FPL faktiskt delar ut efter) och straffläggare
+(`penalties_order` finns och är verifierat). Båda går att mäta mot utfall i
+Facit när fler omgångar passerat. Bygg dem inte på tro innan dess.
 
 ## Nyligen gjort (aug 2026)
 - **`98f73dd` — deployad och verifierad i produktion.** Två buggar:
