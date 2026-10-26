@@ -1156,13 +1156,17 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
     },
     {
       id:"fh", name:"Free Hit", icon:"🎯",
-      gain:now.fh, unit:"xP",
+      // Ingen siffra har. Vad chipet ar vart beror pa vilket lag du skulle
+      // bygga i stallet, och det kraver din budget. Knappen nedan raknar ut
+      // det pa riktigt. Att visa "vad du forlorar pa spelare utan match" som
+      // om det vore chipets varde var missvisande: det ar noll de flesta
+      // veckor aven nar chipet vore starkt.
+      gain:null,
       headline: now.blanks
-        ? `${now.blanks} av dina startspelare saknar match — ${now.fh.toFixed(1)} xP uteblir`
+        ? `${now.blanks} av dina startspelare saknar match den här omgången`
         : `Alla dina startspelare har match den här omgången`,
-      detail:line("fh","xP",
-        `Ingen av de ${CHIP_HORIZON} kommande omgångarna har spelare utan match, så chipet är inte värt något i någon av dem.`),
-      notes:[`Free Hit lönar sig när många av dina spelare är utan match. Vinsten ovan är vad du förlorar utan chipet, inte vad ett nytt lag skulle ge.`],
+      detail:`Vad chipet är värt beror på vilket lag du skulle ställa upp i stället. Tryck på knappen nedan så räknas det ut mot din budget.`,
+      notes:[`Free Hit lönar sig när ditt eget lag ligger långt under vad pengarna skulle räcka till den omgången — antingen för att spelare saknar match, eller för att lagen med de lätta matcherna inte finns i din trupp.`],
     },
     {
       id:"wc", name:"Wildcard", icon:"🃏",
@@ -1571,30 +1575,42 @@ function TransferCard({rec}){
 
 // Lagforslag for Free Hit och Wildcard. On demand: losaren tar tiondels
 // sekunder, och den ska inte kora om vid varje rendering.
-function SquadSuggestion({mode,bs,fm,tb,budget}){
-  const [st,setSt]=useState({lage:"idle",res:null,fel:""});
+function SquadSuggestion({mode,bs,fm,tb,budget,squad}){
+  const [st,setSt]=useState({lage:"idle",res:null,fel:"",fh:null});
   const fh = mode==="fh";
 
   function bygg(){
-    setSt({lage:"raknar",res:null,fel:""});
+    setSt({lage:"raknar",res:null,fel:"",fh:null});
     // Ge webblasaren en tick att rita om knappen innan losaren later tradden.
     setTimeout(()=>{
       try{
         const pool=bs.elements.filter(p=>!isInjured(p)&&xMins(p)>=0.2);
-        const res=solveSquad({
-          pool, rules:squadRules(bs), budget,
-          // Free Hit varderas pa en enda omgang, den som har odds. Wildcard
-          // over fem, for truppen ar din tills du river den.
-          scoreOf: fh ? p=>estimateXpAt(p,fm,SEASON.nextGw,true).xp
-                      : p=>estimateXpOver(p,fm,SEASON.nextGw,LONG_HORIZON),
-          // Free Hit-banken spelar aldrig, sa den ska vara billigast mojliga
-          // och pengarna ligga i elvan. Wildcard-banken maste vara spelbar.
-          benchWeight: fh ? 0 : 0.15,
-          fm, bs,
-        });
-        if(!res) throw new Error("Det gick inte att få ihop en giltig trupp inom budgeten");
-        setSt({lage:"klar",res,fel:""});
-      }catch(e){ setSt({lage:"fel",res:null,fel:String(e.message||e)}); }
+        const rules=squadRules(bs);
+        if(fh){
+          // Nasta omgang far odds, for det ar den basta uppskattning vi har.
+          const nu=freeHitGain({squad,pool,rules,fm,bs,budget,g:SEASON.nextGw,useOdds:true});
+          if(!nu) throw new Error("Det gick inte att få ihop en giltig trupp inom budgeten");
+          // Jamforelsen mellan omgangar gors oddsfritt, annars taflar nasta
+          // omgang med en annan modell an de ovriga. Samma fel som i
+          // chipraden, och det ska inte goras om.
+          const horisont=[];
+          for(let g=SEASON.nextGw; g<SEASON.nextGw+CHIP_HORIZON; g++){
+            const r=freeHitGain({squad,pool,rules,fm,bs,budget,g,useOdds:false});
+            if(r) horisont.push(r);
+          }
+          setSt({lage:"klar",res:nu.trupp,fel:"",fh:{nu,horisont}});
+        } else {
+          const res=solveSquad({
+            pool, rules, budget,
+            // Wildcard varderas over fem omgangar, for truppen ar din tills
+            // du river den. Banken maste darfor vara spelbar.
+            scoreOf: p=>estimateXpOver(p,fm,SEASON.nextGw,LONG_HORIZON),
+            benchWeight: 0.15, fm, bs,
+          });
+          if(!res) throw new Error("Det gick inte att få ihop en giltig trupp inom budgeten");
+          setSt({lage:"klar",res,fel:"",fh:null});
+        }
+      }catch(e){ setSt({lage:"fel",res:null,fel:String(e.message||e),fh:null}); }
     },30);
   }
 
@@ -1628,6 +1644,43 @@ function SquadSuggestion({mode,bs,fm,tb,budget}){
       </div>
       {st.lage==="fel" &&
         <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>Lagförslaget misslyckades: {st.fel}</div>}
+      {res && fh && st.fh && (()=>{
+        const {nu,horisont}=st.fh;
+        const v=horisont.map(r=>r.vinst);
+        const sorterat=[...v].sort((a,b)=>b-a);
+        const marginal=sorterat.length>1 ? sorterat[0]-sorterat[1] : 0;
+        const b=horisont.reduce((a,x)=>x.vinst>a.vinst?x:a);
+        return(
+          <div style={{...c.briefCard,marginTop:`${SP[4]}px`}}>
+            <div style={c.briefMeta}>VAD CHIPET FAKTISKT ÄR VÄRT</div>
+            <div className="lead" style={{...c.weekLead,fontSize:"30px",lineHeight:"36px"}}>
+              {nu.vinst>=0?"+":""}{nu.vinst.toFixed(1)} xP den här omgången
+            </div>
+            <div style={{...c.weekSub,marginTop:`${SP[3]}px`}}>
+              Laget nedan ger {nu.optimal.toFixed(1)} xP i GW{SEASON.nextGw}. Din nuvarande
+              elva ger {nu.din.toFixed(1)}. Skillnaden är vad chipet köper dig, och den växer
+              både när dina spelare saknar match och när lagen med de lätta matcherna inte
+              finns i din trupp.
+            </div>
+            {/* Utan den har meningen lases ett stort tal som "spela nu", vilket
+                kan kosta ett chip. En perfekt trupp slar alltid en verklig, sa
+                talet ar hogt i stort sett varje vecka. Signalen sitter i
+                variationen mellan omgangar, inte i nivan. */}
+            <div style={{...c.weekSub,fontSize:"13px"}}>
+              Talet är högt nästan varje omgång — en perfekt trupp slår alltid en verklig.
+              Det som avgör om du ska spela chipet är om den här omgången sticker ut mot de
+              kommande, inte hur stort talet är.
+            </div>
+            <div style={{...c.weekSub,fontSize:"13px"}}>
+              {marginal < 0.5
+                ? `Ingen av de ${CHIP_HORIZON} kommande omgångarna sticker ut — den bästa slår näst bästa med ${marginal.toFixed(2)} xP.`
+                : b.gw===SEASON.nextGw
+                ? `Bästa läget av de ${CHIP_HORIZON} kommande omgångarna är den här.`
+                : `GW${b.gw} ser bättre ut: ${b.vinst.toFixed(1)} xP mot ${horisont[0].vinst.toFixed(1)} nu (båda räknade utan odds).`}
+            </div>
+          </div>
+        );
+      })()}
       {res && <>
         <div style={{...c.weekSub,marginTop:`${SP[4]}px`}}>
           {res.xi.formation} · £{res.kostnad.toFixed(1)}m av £{budget.toFixed(1)}m ·{" "}
@@ -1659,7 +1712,12 @@ function SquadSuggestion({mode,bs,fm,tb,budget}){
 }
 
 function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,bank,squadValue}){
-  const budget = squadValue!=null ? squadValue+bank : null;
+  // FPL:s truppvarde INKLUDERAR redan banken. Uppmatt over fyra omgangar:
+  // value minus bank landar pa spelarnas prissumma (avvikelse 0,1-0,2 fran
+  // skillnaden mellan forsaljningspris och dagspris), medan value utan
+  // avdrag avviker med exakt bankens belopp. Att addera banken har gav
+  // darfor en budget som var for hog, och lag du inte haft rad med.
+  const budget = squadValue;
   const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
   return(
     <div>
@@ -1695,7 +1753,8 @@ function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,bank,squadValue}){
               </div>
             ))}
             {av.available && (chip.id==="fh"||chip.id==="wc") &&
-              <SquadSuggestion mode={chip.id} bs={bs} fm={fm} tb={tb} budget={budget}/>}
+              <SquadSuggestion mode={chip.id} bs={bs} fm={fm} tb={tb} budget={budget}
+                               squad={[...starters,...bench]}/>}
           </div>
         );
       })}
@@ -2080,6 +2139,27 @@ function pickBy(pool,need,teamLimit,valueOf,taken,teamCount){
 
 const flat=g=>[...g[1],...g[2],...g[3],...g[4]];
 const sumCost=arr=>arr.reduce((a,p)=>a+price(p),0);
+
+// Vad Free Hit faktiskt ar vart: skillnaden mellan den basta endagstrupp
+// pengarna racker till och den elva du redan har.
+//
+// Det gamla mattet var "vad du forlorar pa spelare utan match". Det fangar
+// tomma omgangar men missar det vanligaste laget: att fem lag har latta
+// matcher och du inte ager nagon av deras nyckelspelare. Da ar din elva
+// intakt, forlusten noll, och chipet anda varre an sitt rykte.
+//
+// Gapet fangar bada. Har du spelare utan match sjunker din egen elva, och
+// gapet vaxer av sig sjalvt.
+function freeHitGain({squad, pool, rules, fm, bs, budget, g, useOdds}){
+  const scoreOf=p=>estimateXpAt(p,fm,g,useOdds&&g===SEASON.nextGw).xp;
+  const opt=solveSquad({pool,rules,budget,scoreOf,benchWeight:0,fm,bs});
+  if(!opt) return null;
+  // Din egen elva matas med EXAKT samma poangfunktion. Annars jamfor vi
+  // tva modeller igen, vilket vi redan gjort en gang for mycket.
+  const min=bestXI(squad,fm,bs.element_types,new Map(squad.map(p=>[p.id,scoreOf(p)])));
+  if(!min) return null;
+  return {gw:g, optimal:opt.xi.total, din:min.total, vinst:opt.xi.total-min.total, trupp:opt};
+}
 
 function solveSquad({pool,rules,budget,scoreOf,benchWeight,fm,bs}){
   const scoreMap=new Map(pool.map(p=>[p.id,scoreOf(p)]));
