@@ -1711,7 +1711,7 @@ function SquadSuggestion({mode,bs,fm,tb,budget,squad}){
   );
 }
 
-function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,bank,squadValue}){
+function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,squadValue}){
   // FPL:s truppvarde INKLUDERAR redan banken. Uppmatt over fyra omgangar:
   // value minus bank landar pa spelarnas prissumma (avvikelse 0,1-0,2 fran
   // skillnaden mellan forsaljningspris och dagspris), medan value utan
@@ -3228,7 +3228,7 @@ function App(){
           {!results&&<div style={{fontSize:"13px",color:T.mut,textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
         </div>
       )}
-      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail} bank={bank} squadValue={squadValue}/>}
+      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail} squadValue={squadValue}/>}
       {tab==="fixtures"&&<><FixtureTicker starters={starters} fm={fm} tb={tb}/>
         <RotationPlan squad={[...starters,...bench]} fm={fm} bs={bs} gw={gw} tb={tb}/></>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
