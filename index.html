@@ -1102,22 +1102,25 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
   // uppskattningen vi har for just nasta omgang.
   const now=chipGainsOverHorizon(starters,bench,fm,gw,true)[0];
   const best=k=>horizon.reduce((a,b)=>b[k]>a[k]?b:a);
-  // Under det har spannet sager vi att omgangarna inte gar att skilja at.
-  // Tröskeln ar ett omdome, inte en uträkning: en halv xP ar mindre an
-  // modellens egen osakerhet sa har tidigt pa sasongen.
+  // Avstandet till TVAAN avgor om en omgang sticker ut, inte spannet ner till
+  // jumbon. Med spann mattes fel sak: Bench Boost kunde ha 0,73 i spann och
+  // anda vinna med 0,06 over naste omgang, och da pastod raden att den har
+  // omgangen var basta laget av fem. Troskeln ar ett omdome, inte en
+  // uträkning: en halv xP ar mindre an modellens egen osakerhet.
   const SKILJER_SIG = 0.5;
   // nollText: nar varje omgang ar exakt noll finns ett tydligare besked an
   // "de ligger inom 0.0 xP fran varandra". Noll betyder nagot konkret.
   const line=(k,unit,nollText)=>{
     const v=horizon.map(r=>r[k]);
     if(nollText && Math.max(...v)===0) return nollText;
-    const spann=Math.max(...v)-Math.min(...v);
-    // Fem identiska varden ar ingen jamforelse. Reduce:n nedan skulle valja
+    // Fem likvardiga varden ar ingen jamforelse. Reduce:n nedan skulle valja
     // den forsta posten och darmed pasta att den har omgangen ar bast, nar
     // sanningen ar att den bara star forst i listan. Free Hit hamnar har
     // nastan varje vecka: har ingen spelare blank match sa ar alla fem noll.
-    if(spann < SKILJER_SIG)
-      return `Ingen av de ${CHIP_HORIZON} kommande omgångarna sticker ut — de ligger inom ${spann.toFixed(1)} ${unit} från varandra.`;
+    const sorterat=[...v].sort((a,b)=>b-a);
+    const marginal=sorterat[0]-sorterat[1];
+    if(marginal < SKILJER_SIG)
+      return `Ingen av de ${CHIP_HORIZON} kommande omgångarna sticker ut — den bästa slår näst bästa med ${marginal.toFixed(2)} ${unit}.`;
     const b=best(k);
     return b.gw===gw
       ? `Bästa läget av de ${CHIP_HORIZON} kommande omgångarna är den här.`
