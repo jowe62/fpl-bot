@@ -401,15 +401,34 @@ function oddsAttackXp(p,mult){
   return num(o.anytimeProb)*goalPts + num(o.assistProb)*3*mult;
 }
 
-// Fixtursvårighetens effekt på anfallsavkastning. Anpassad mot GW2:s
-// (marginalkalibrerade) odds för 128 spelare med meningsfull xGI: medianen av
-// odds/xGI-proxy föll monotont 0.48 → 0.32 → 0.26 över FDR 2, 3 och 4.
+// Hemmaplan på anfallssidan. Ersätter den FDR-lutning som stod här förut.
 //
-// VARNING: R² för den här tilten är 0.031. Riktningen är verklig men
-// motståndet förklarar bara tre procent av variationen mellan spelare — det
-// mesta är brus i xGI efter få omgångar. Använd den som en svag lutning, inte
-// som en prognos.
-const ATK_FDR_TILT = -0.23;
+// Mätt mot de marginalkalibrerade oddsen för GW9, 258 spelare med minst 180
+// spelade minuter. Varje variant fick sin egen optimala skala, så det som
+// jämförs är formen och inte nivån:
+//
+//   ingen justering alls          RMSE 0.2297
+//   FPL:s FDR (den gamla)         RMSE 0.2308   ← sämre än att inte justera
+//   egen xGC-rating               RMSE 0.2308
+//   FDR + hemmaplan               RMSE 0.2154
+//   egen xGC + hemmaplan          RMSE 0.2136
+//   BARA hemmaplan                RMSE 0.2115   ← bäst
+//
+// Båda måtten på motståndarstyrka gör modellen sämre på anfallssidan. Det är
+// inte lika förvånande som det låter: xGI per 90 är spelarnivå och fångar
+// redan mycket, lagens egen försvarsdata efter åtta omgångar är till stor del
+// brus (samma lärdom som krympningen i buildTeamXgc), och den gamla lutningen
+// var stark — FDR 5 skar anfallet med 37 procent på en signal vars R² var
+// 0.031. Att ta bort den tar bort ett stort fel.
+//
+// Faktorn svepte 1.00 till 1.30 med platt botten mellan 1.16 och 1.25,
+// optimum 1.20 (RMSE 0.2085).
+//
+// BEGRÄNSNING: en omgång, ett stickprov, och måltavlan är odds och inte
+// utfall. Mät om när fler omgångar finns. Clean sheet-sidan har sin egen
+// FDR-lutning som INTE är mätt på det här sättet och står kvar.
+const ATK_HOME_FACTOR = 1.20;
+const atkHome = f => f.home ? ATK_HOME_FACTOR : 1/ATK_HOME_FACTOR;
 
 // De två vägarna till anfallspoäng — bookmakerodds och xGI-proxyn — låg på
 // OLIKA skalor: summerat över spelarna med båda gav proxyn 137.7 poäng mot
@@ -429,7 +448,7 @@ function calibrateAttackScale(elements,fm){
     if(!f) continue;
     const goalW={1:6,2:6,3:5,4:4}[p.element_type]||4;
     sumOdds += o;
-    sumProxy += attackPer90(p)*(0.6*goalW+0.4*3)*Math.exp(ATK_FDR_TILT*(f.diff-3));
+    sumProxy += attackPer90(p)*(0.6*goalW+0.4*3)*atkHome(f);
   }
   return sumProxy>0 ? sumOdds/sumProxy : 1;
 }
@@ -453,7 +472,7 @@ function estimateXpAt(p,fm,gw,isNextGw){
     const oddsAtt = isNextGw ? oddsAttackXp(p,1) : null;
     attack += oddsAtt!=null
       ? oddsAtt
-      : attackPer90(p)*(0.6*goalW+0.4*3)*Math.exp(ATK_FDR_TILT*(f.diff-3))*SEASON.attackScale;
+      : attackPer90(p)*(0.6*goalW+0.4*3)*atkHome(f)*SEASON.attackScale;
     const cs = cleanSheetProbAt(p,fm,gw,isNextGw);
     if(type===1||type===2) csPts += cs*4;
     else if(type===3)      csPts += cs*1;
