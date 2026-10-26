@@ -597,17 +597,22 @@ function savePredictions(gw, squad, fm){
 // Traffsakerhet per omgang, sa felet gar att folja over tid. Det talet ar
 // signalen for nar modellens grund bar tillrackligt for en solver.
 const ACC_KEY = teamKey("glennos:accuracy");
-function saveAccuracy(gw, mae){
+function saveAccuracy(gw, mae, base){
   try{
     const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
-    all[gw]=+mae.toFixed(2);
+    all[gw]={mae:+mae.toFixed(2), base: base!=null ? +base.toFixed(2) : null};
     localStorage.setItem(ACC_KEY,JSON.stringify(all));
   }catch{}
 }
 function readAccuracyHistory(){
   try{
     const all=JSON.parse(localStorage.getItem(ACC_KEY)||"{}");
-    return Object.entries(all).map(([gw,mae])=>({gw:+gw,mae})).sort((a,b)=>a.gw-b.gw);
+    // Poster sparade fore jamforelsen fanns ar blotta tal. De ritas utan
+    // jamforelse i stallet for att fa en pahittad.
+    return Object.entries(all).map(([gw,v])=>
+      typeof v==="number" ? {gw:+gw, mae:v, base:null}
+                          : {gw:+gw, mae:v.mae, base:v.base ?? null}
+    ).sort((a,b)=>a.gw-b.gw);
   }catch{ return []; }
 }
 
@@ -810,10 +815,12 @@ function buildTakeaways(r){
   const deadBench=r.benchNames.filter(b=>b.pts===0).length;
   if(deadBench>=2)
     watch.push(`${deadBench} av fyra bänkspelare gav noll. En tunn bänk kostar först när någon i elvan uteblir, men då kostar den mycket.`);
-  if(r.accuracy && r.accuracy.mae>3)
-    watch.push(`Modellen låg ${r.accuracy.mae.toFixed(1)} poäng fel i snitt. Väg dess råd mot din egen läsning tills siffran krymper.`);
-  if(r.accuracy && r.accuracy.mae<=3)
-    watch.push(`Modellen låg ${r.accuracy.mae.toFixed(1)} poäng fel i snitt, vilket är rimligt för en omgång med det här underlaget.`);
+  if(r.accuracy){
+    const m=r.accuracy.mae, b=r.accuracy.base;
+    watch.push(m<b
+      ? `Modellen låg ${m.toFixed(1)} poäng fel i snitt. Att bara gissa ${BASELINE_GUESS} poäng på alla hade gett ${b.toFixed(1)}, så modellen bar sin vikt den här omgången.`
+      : `Modellen låg ${m.toFixed(1)} poäng fel i snitt. Att bara gissa ${BASELINE_GUESS} poäng på alla hade gett ${b.toFixed(1)} — modellen tillförde ingenting den här omgången.`);
+  }
   if(r.pct!=null && r.pct>50)
     watch.push(`Du ligger i percentil ${r.pct}. Det är hälften av fältet framför dig — kaptensvalet är den enskilt snabbaste vägen att flytta det.`);
   return {good, bad, watch};
@@ -821,6 +828,21 @@ function buildTakeaways(r){
 
 // Hur nara gick modellen? Medelavvikelsen i poang per spelare, plus var den
 // sag mest fel. Bara spelare vi faktiskt hade en prognos for raknas.
+// Ett snittfel utan jamforelse sager ingenting. "2,6 poang fel" ar bra eller
+// uselt beroende pa vad alternativet var.
+//
+// Matt pa GW2-GW8 for den har truppen, mot verkligt utfall:
+//   modellen                 2.49
+//   gissa alltid 2 poang     3.06
+//   spelarens snitt hittills 3.60
+//   forra omgangens poang    3.68
+//   alltid 0                 3.99
+//
+// Konstanten 2 ar alltsa den bästa av de naiva gissningarna, och darfor den
+// enda rattvisa matstocken. Att den vinner ar ingen slump: de flesta spelare
+// landar kring tva poang for att ha startat matchen.
+const BASELINE_GUESS = 2;
+
 function buildAccuracy(picks, livePts, pb, predicted){
   if(!predicted) return null;
   const rows=picks.picks
@@ -829,8 +851,10 @@ function buildAccuracy(picks, livePts, pb, predicted){
     .map(r=>({...r, err:r.act-r.pred}));
   if(!rows.length) return null;
   const mae=rows.reduce((s,r)=>s+Math.abs(r.err),0)/rows.length;
+  // Exakt samma spelare och omgang, sa jamforelsen ar parad.
+  const base=rows.reduce((s,r)=>s+Math.abs(BASELINE_GUESS-r.act),0)/rows.length;
   const sorted=[...rows].sort((a,b)=>b.err-a.err);
-  return {n:rows.length, mae, over:sorted[0], under:sorted[sorted.length-1]};
+  return {n:rows.length, mae, base, over:sorted[0], under:sorted[sorted.length-1]};
 }
 
 // ── Diagram ─────────────────────────────────────────────────────────────────
@@ -2695,6 +2719,11 @@ function ReviewTab({review:r,tb}){
           <div className="lead" style={c.weekLead}>
             {r.accuracy.mae.toFixed(1)} poäng fel i snitt
           </div>
+          <div style={{...c.weekSub,color:r.accuracy.mae<r.accuracy.base?T.good:T.warn,fontWeight:600}}>
+            {r.accuracy.mae<r.accuracy.base
+              ? `${(((r.accuracy.base-r.accuracy.mae)/r.accuracy.base)*100).toFixed(0)}% bättre än att gissa ${BASELINE_GUESS} poäng på alla, som hade gett ${r.accuracy.base.toFixed(1)}.`
+              : `Sämre än att gissa ${BASELINE_GUESS} poäng på alla, som hade gett ${r.accuracy.base.toFixed(1)}.`}
+          </div>
           <div style={c.weekSub}>
             Räknat på {r.accuracy.n} spelare vi hade en prognos för.
             {" "}Mest underskattad: {r.accuracy.over.p.web_name}, {r.accuracy.over.pred.toFixed(1)} xP
@@ -2704,15 +2733,24 @@ function ReviewTab({review:r,tb}){
           </div>
           {r.accuracyHistory && r.accuracyHistory.length>1 && (
             <div style={{marginTop:`${SP[4]}px`}}>
-              <div style={{...c.legendTxt,marginBottom:`${SP[2]}px`}}>Fel per omgång — krymper det bär modellen</div>
+              {/* Rubriken sa forut "krymper det bar modellen". Felet behover
+                  inte krympa for att modellen ska bara sin vikt — det som
+                  avgor ar om den slar matstocken, inte om den blir battre an
+                  sig sjalv. */}
+              <div style={{...c.legendTxt,marginBottom:`${SP[2]}px`}}>
+                Fel per omgång. Lime är modellen, grått är att gissa {BASELINE_GUESS} poäng på alla.
+                Lägre är bättre, och lime ska ligga under grått.
+              </div>
               <div className="barsWrap" style={c.barsWrap}>
                 {r.accuracyHistory.map(a=>{
-                  const max=Math.max(...r.accuracyHistory.map(x=>x.mae),1);
+                  const max=Math.max(...r.accuracyHistory.flatMap(x=>[x.mae,x.base??0]),1);
                   return(
                     <div key={a.gw} className="barCol" style={c.barCol}>
                       <span className="num" style={{...c.barVal,color:T.mut}}>{a.mae.toFixed(1)}</span>
                       <div className="barPair" style={c.barPair}>
-                        <div style={{width:"14px",height:`${(a.mae/max)*90}px`,background:T.info,borderRadius:"2px 2px 0 0"}}/>
+                        <div style={{width:"13px",height:`${(a.mae/max)*90}px`,background:T.brand,borderRadius:"2px 2px 0 0"}}/>
+                        {a.base!=null &&
+                          <div style={{width:"13px",height:`${(a.base/max)*90}px`,background:T.line,borderRadius:"2px 2px 0 0"}}/>}
                       </div>
                       <span style={c.barLbl}>GW{a.gw}</span>
                     </div>
@@ -3114,7 +3152,7 @@ function App(){
         review.takeaways=buildTakeaways(review);
         // Traffsakerheten sparas per omgang sa en trend gar att visa nar det
         // finns flera matpunkter.
-        if(review.accuracy) saveAccuracy(squadGw, review.accuracy.mae);
+        if(review.accuracy) saveAccuracy(squadGw, review.accuracy.mae, review.accuracy.base);
         saveActuals(squadGw, livePts, picks.picks.map(x=>x.element));
         SEASON.selfCal = buildSelfCalibration();
         review.accuracyHistory=readAccuracyHistory();
