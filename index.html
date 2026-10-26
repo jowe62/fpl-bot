@@ -1837,6 +1837,21 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   // Fredagskollen. Ogonblicksbilden flyttas fram forst nar du markerat som last.
   const squad15 = useMemo(()=>[...starters,...bench],[starters,bench]);
   const [snap,setSnap] = useState(()=>readSnapshot());
+  const [nyheter,setNyheter] = useState({lage:"laddar",items:[],fel:""});
+  useEffect(()=>{
+    let levande=true;
+    fetch("/api/news")
+      .then(async r=>{ const d=await r.json().catch(()=>null);
+        if(!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+        if(!d?.items) throw new Error("Svaret saknade poster");
+        return d; })
+      .then(d=>{ if(levande) setNyheter({lage:"klar",items:d.items,fel:"",kalla:d.source}); })
+      .catch(e=>{ if(levande) setNyheter({lage:"fel",items:[],fel:String(e.message||e)}); });
+    return ()=>{ levande=false; };
+  },[]);
+  const truppnyheter = useMemo(
+    ()=>nyheter.lage==="klar" ? matchNews(squad15, nyheter.items, bs.elements) : [],
+    [nyheter,squad15,bs]);
   const andringar = useMemo(()=>buildChanges(squad15,snap),[squad15,snap]);
   function markeraLast(){ saveSnapshot(squad15); setSnap(readSnapshot()); }
 
@@ -1932,6 +1947,39 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
         </>}
         <div style={{marginTop:`${SP[4]}px`}}>
           <button style={c.weekLink} onClick={markeraLast}>Markera som läst</button>
+        </div>
+
+        {/* Nagon annans pastaenden, tydligt avskilda fran modellens egna tal. */}
+        <div style={{marginTop:`${SP[6]}px`,borderTop:`1px solid ${T.line}`,paddingTop:`${SP[4]}px`}}>
+          <div style={c.sLbl}>Skrivet om din trupp</div>
+          {nyheter.lage==="laddar" && <div style={c.weekSub}>Hämtar rubriker…</div>}
+          {nyheter.lage==="fel" &&
+            <div style={c.errNote}>Kunde inte hämta rubriker: {nyheter.fel}</div>}
+          {nyheter.lage==="klar" && truppnyheter.length===0 &&
+            <div style={c.weekSub}>
+              Ingen av de {nyheter.items.length} senaste rubrikerna från {nyheter.kalla} nämner
+              någon i din trupp.
+            </div>}
+          {nyheter.lage==="klar" && truppnyheter.length>0 && <>
+            <div style={{...c.legendTxt,maxWidth:"640px",lineHeight:1.6,marginBottom:`${SP[3]}px`}}>
+              Rubriker från {nyheter.kalla}. Det här är någon annans påståenden, inte modellens.
+              De rör ingen siffra i boten — läs och bedöm själv.
+            </div>
+            {truppnyheter.map((n,i)=>(
+              <div key={i} style={{...c.weekFlag(),marginBottom:`${SP[3]}px`}}>
+                <span style={c.weekDot(T.info)}/>
+                <span>
+                  <a href={n.link} target="_blank" rel="noopener noreferrer"
+                     style={{color:T.ink,textDecoration:"underline",textUnderlineOffset:"2px"}}>{n.title}</a>
+                  <span style={{display:"block",fontSize:"11px",color:T.dim,marginTop:"2px",fontFamily:'"IBM Plex Mono",monospace'}}>
+                    {n.ts?briefStamp(n.ts):"okänd tid"}
+                    {" · "}
+                    {n.traffar.map(t=>t.p.web_name+(t.tvetydig?" (kan vara en annan spelare med samma namn)":"")).join(", ")}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </>}
         </div>
       </div>
 
@@ -2391,6 +2439,65 @@ function buildChanges(squad, snap){
       ut.push({p, typ:nuChance<varChance?"sämre":"bättre", text:`${p.web_name} gick från ${varChance??"flaggad"}% till ${nuChance??"flaggad"}% speltid. ${p.news||""}`.trim()});
     else if((f.news||"")!==(p.news||"") && p.news)
       ut.push({p, typ:"notis", text:`${p.web_name}: ${p.news}`});
+  }
+  return ut;
+}
+
+// ── Nyhetsrubriker matchade mot truppen ────────────────────────────────────
+//
+// Rubrikerna ar NAGON ANNANS pastaenden. De visas som citat med lank och
+// tidsstampel, och de ror aldrig en siffra i modellen. Modellen sager vad den
+// kan bevisa, panelen visar vad nagon skrivit, och du avgor.
+//
+// Tvetydiga traffar markeras i stallet for att gissa. Ligan har bade
+// Joao Pedro och Pedro Porro, sa rubriken "Pedro injury latest" kan betyda
+// bada. Att gissa dar ar exakt felet som tog flera omgangar att rensa ur
+// oddsmatchningen.
+const NEWS_MIN_LEN = 4;
+// Varje ORD i namnet, inte bara hela strangen. Skribenter skriver "Pedro",
+// FPL har web_name "Joao Pedro" och second_name "Junqueira de Jesus" — ingen
+// av de hela strangarna matchar rubriken "Pedro injury latest", alltsa precis
+// den rubrik funktionen fanns till for.
+//
+// Ordniva ar samma grepp som en gang gav 16 felaktiga traffar i
+// oddsmatchningen, och darfor mattes det innan det infordes: pa det riktiga
+// flodet gav det tva traffar, noll falska. Skillnaden mot odds ar att en
+// felaktig traff har bara visar en rubrik for mycket, markt som osaker, i
+// stallet for att tyst flytta en siffra. Priset for brus ar lagre an priset
+// for en missad skadenyhet.
+function newsForms(p){
+  const ord=[...(p.web_name||"").split(/[\s.\-]+/), ...(p.second_name||"").split(/[\s.\-]+/)];
+  return [...new Set(ord.filter(n=>n && n.length>=NEWS_MIN_LEN))];
+}
+function esc(x){ return x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
+// Skribenter skriver "Guehi", FPL skriver "Guéhi". Utan den har tvatten gav
+// matchningen NOLL traffar pa en trupp dar tva namn bar accent — Guehi och
+// Joao Pedro, alltsa precis den spelare funktionen fanns till for.
+function avAccent(x){ return x.normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+function ordRe(n){ return new RegExp(`(?<![\\p{L}])${esc(avAccent(n))}(?![\\p{L}])`,"iu"); }
+
+function matchNews(squad, items, allElements){
+  // Hur manga i HELA ligan kan rubriken syfta pa? Rakans bara for de namnformer
+  // som faktiskt gett traff, sa det blir billigt.
+  const tvetydig={};
+  const arTvetydig=n=>{
+    if(tvetydig[n]!=null) return tvetydig[n];
+    const re=ordRe(n);
+    let antal=0;
+    for(const q of allElements){
+      if(re.test(avAccent(`${q.first_name||""} ${q.second_name||""} ${q.web_name||""}`))) antal++;
+      if(antal>1) break;
+    }
+    return (tvetydig[n]=antal>1);
+  };
+  const ut=[];
+  for(const it of items){
+    const traffar=[];
+    for(const p of squad){
+      const n=newsForms(p).find(f=>ordRe(f).test(avAccent(it.title)));
+      if(n) traffar.push({p, namn:n, tvetydig:arTvetydig(n)});
+    }
+    if(traffar.length) ut.push({...it, traffar});
   }
   return ut;
 }

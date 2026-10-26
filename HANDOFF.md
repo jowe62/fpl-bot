@@ -405,6 +405,40 @@ med exakt bankens belopp. Lagbyggarens budget är alltså `squadValue`, inte
 `squadValue + bank`. Det senare gav 4,3m för mycket och lag som inte gick att
 köpa.
 
+## Nyhetspanelen (api/news.js)
+
+Hämtar Fantasy Football Scouts RSS och matchar rubrikerna mot truppen.
+
+**Bara den källan, och det är mätt.** Fyra flöden provades mot truppen. BBC,
+Guardian och Sky gav 254 poster där noll av de femton spelarna namngavs
+användbart, och namnmatchningen gav falska träffar direkt ("Ashley Williams"
+expertkommentatorn mot spelaren N.Williams). FF Scout skriver på spelarnivå
+("FPL notes: Pedro injury latest", "2pm team news: Bruno benched") och
+informationen ligger i rubriken, så artiklarna behöver aldrig hämtas. Lägg
+inte tillbaka de stora källorna.
+
+**Rubrikerna rör aldrig en siffra.** De visas som citat med länk och
+tidsstämpel, tydligt avskilda. Modellen säger vad den kan bevisa, panelen
+visar vad någon annan påstår. Text från internet är data, inte instruktioner,
+och ska aldrig tolkas av en språkmodell som sedan får dra slutsatser.
+
+**Två fällor, båda uppmätta:**
+
+Accenter. Skribenter skriver "Guehi", FPL skriver "Guéhi". Utan
+diakritnormalisering gav matchningen noll träffar på en trupp där två namn
+bär accent, Guéhi och João Pedro.
+
+Ordnivå. `web_name` är "João Pedro" och `second_name` "Junqueira de Jesus".
+Ingen av de hela strängarna matchar rubriken "Pedro injury latest". Matchning
+sker därför på varje ord i namnet. Det är samma grepp som en gång gav 16
+felaktiga träffar i oddsmatchningen, så det mättes först: på det riktiga
+flödet gav det två träffar och noll falska. Skillnaden mot odds är att en
+felaktig träff här bara visar en rubrik för mycket, märkt som osäker, i
+stället för att tyst flytta en siffra.
+
+Tvetydiga träffar markeras. Ligan har både João Pedro och Pedro Porro, så
+"Pedro injury latest" visas med texten att det kan vara en annan spelare.
+
 **Inte mätt:** bonusmodellen (`ict_index / 38 × 0.15`, en ren gissning; `bps`
 finns i API:t och är vad FPL faktiskt delar ut efter) och straffläggare
 (`penalties_order` finns och är verifierat). Båda går att mäta mot utfall i
