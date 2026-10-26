@@ -1834,6 +1834,12 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   // Veckans brief. Språkmodellen får INTE räkna — den får exakt de värden som
   // redan står i rutorna ovan och skriver om dem till löpande text. Därför
   // byggs payloaden av samma variabler som renderas, inte av rådata.
+  // Fredagskollen. Ogonblicksbilden flyttas fram forst nar du markerat som last.
+  const squad15 = useMemo(()=>[...starters,...bench],[starters,bench]);
+  const [snap,setSnap] = useState(()=>readSnapshot());
+  const andringar = useMemo(()=>buildChanges(squad15,snap),[squad15,snap]);
+  function markeraLast(){ saveSnapshot(squad15); setSnap(readSnapshot()); }
+
   const [briefs,setBriefs] = useState(()=>readBriefs());
   const [briefState,setBriefState] = useState({state:"idle",error:""});
   const [visaUnderlag,setVisaUnderlag] = useState(false);
@@ -1900,6 +1906,38 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   return(
     <div>
       <div style={c.weekBlock}>
+        <div style={c.weekKicker}>Fredagskollen</div>
+        {andringar===null ? <>
+          <div className="lead" style={{...c.weekLead,fontSize:"26px",lineHeight:"32px"}}>Inget att jämföra med än</div>
+          <div style={c.weekSub}>
+            Boten har inte sett din trupp förut. Markera som läst nu, så visas allt som
+            ändrats nästa gång du kommer in.
+          </div>
+        </> : andringar.length===0 ? <>
+          <div className="lead" style={{...c.weekLead,fontSize:"26px",lineHeight:"32px"}}>Inget nytt sedan sist</div>
+          <div style={c.weekSub}>
+            Ingen i truppen har flaggats, rentvåtts eller fått en ny notis sedan{" "}
+            {briefStamp(snap.ts)}.
+          </div>
+        </> : <>
+          <div className="lead" style={{...c.weekLead,fontSize:"26px",lineHeight:"32px"}}>
+            {andringar.length} {andringar.length===1?"ändring":"ändringar"} sedan {briefStamp(snap.ts)}
+          </div>
+          {andringar.map((a,i)=>(
+            <div key={a.p.id+"-"+i} style={{...c.weekFlag(),marginTop:i===0?`${SP[4]}px`:0}}>
+              <span style={c.weekDot(a.typ==="sämre"?T.bad:a.typ==="bättre"?T.good:T.warn)}/>
+              <span>{a.text}</span>
+            </div>
+          ))}
+        </>}
+        <div style={{marginTop:`${SP[4]}px`}}>
+          <button style={c.weekLink} onClick={markeraLast}>Markera som läst</button>
+        </div>
+      </div>
+
+      <hr style={c.weekRule}/>
+
+      <div style={c.weekBlock}>
         <div style={c.weekKicker}>Kaptensbandet</div>
         {cap ? <>
           <div className="lead" style={c.weekLead}>Sätt bandet på {cap.web_name}</div>
@@ -1908,6 +1946,16 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
             {capFx && <> {capFx.home?"Hemma mot":"Borta mot"} {tb[capFx.oppId]?.name}.</>}
             {" "}Kaptenen räknas dubbelt, så det är veckans enskilt största beslut.
           </div>
+          {/* Flaggan ska sta DAR beslutet fattas. Modellen skalade redan ner
+              Joao Pedro till 68 procent speltid infor GW8, men sa det aldrig
+              hogt, och da gick varningen forlorad. */}
+          {(isInjured(cap)||isDoubtful(cap)) &&
+            <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>
+              {isInjured(cap)
+                ? `Varning: ${cap.web_name} är flaggad som otillgänglig. ${cap.news||""}`
+                : `Varning: ${cap.web_name} är osäker, ${(xMins(cap)*100).toFixed(0)}% förväntad speltid. ${cap.news||""}`}
+              {" "}Modellen har redan räknat ner honom, men bandet på en osäker spelare är veckans största risk.
+            </div>}
         </> : <div className="lead" style={c.weekLead}>Ingen kaptenskandidat hittad.</div>}
         <div style={{marginTop:"10px"}}>
           <button style={c.weekLink} onClick={()=>setTab("captain")}>Se hela rankningen</button>
@@ -2302,6 +2350,49 @@ function solveSquad({pool,rules,budget,scoreOf,benchWeight,fm,bs}){
     squad=basta.squad; varde=basta.varde; xi=basta.xi; byten++;
   }
   return {squad,xi,varde,kostnad:sumCost(squad),formation:bastaFro.formation,byten,scoreMap};
+}
+
+// ── Fredagskollen: vad har andrats sedan du var inne sist? ──────────────────
+//
+// Det enda i boten som ger NY information. Allt annat raknas om fran samma
+// data varje gang. Har jamfors truppens flaggor mot en sparad ogonblicksbild.
+//
+// Ogonblicksbilden uppdateras INTE automatiskt vid varje laddning. Gjorde den
+// det skulle en omladdning radera det du nyss sett. Du markerar som last
+// sjalv, och da flyttas market fram.
+const SNAP_KEY = teamKey("glennos:snapshot");
+function readSnapshot(){
+  try{ const v=JSON.parse(localStorage.getItem(SNAP_KEY)||"null"); return v&&v.players?v:null; }
+  catch{ return null; }
+}
+function saveSnapshot(squad){
+  try{
+    const players={};
+    for(const p of squad) players[p.id]={status:p.status, chance:p.chance_of_playing_next_round, news:p.news||""};
+    localStorage.setItem(SNAP_KEY, JSON.stringify({ts:Date.now(), players}));
+  }catch{}
+}
+// Returnerar null nar det inte finns nagot att jamfora med. Det ar inte samma
+// sak som "inga andringar", och far inte visas som det.
+function buildChanges(squad, snap){
+  if(!snap) return null;
+  const ut=[];
+  for(const p of squad){
+    const f=snap.players[p.id];
+    if(!f) { ut.push({p, typ:"ny", text:`${p.web_name} är ny i truppen sedan sist.`}); continue; }
+    const varChance=f.chance, nuChance=p.chance_of_playing_next_round;
+    const varOk=f.status==="a" && (varChance===null||varChance===100);
+    const nuOk=p.status==="a" && (nuChance===null||nuChance===100);
+    if(varOk&&!nuOk)
+      ut.push({p, typ:"sämre", text:`${p.web_name} är flaggad${nuChance!=null?` till ${nuChance}% speltid`:""}. ${p.news||""}`.trim()});
+    else if(!varOk&&nuOk)
+      ut.push({p, typ:"bättre", text:`${p.web_name} är rentvådd och spelar som vanligt igen.`});
+    else if(!varOk&&!nuOk&&varChance!==nuChance)
+      ut.push({p, typ:nuChance<varChance?"sämre":"bättre", text:`${p.web_name} gick från ${varChance??"flaggad"}% till ${nuChance??"flaggad"}% speltid. ${p.news||""}`.trim()});
+    else if((f.news||"")!==(p.news||"") && p.news)
+      ut.push({p, typ:"notis", text:`${p.web_name}: ${p.news}`});
+  }
+  return ut;
 }
 
 // Mognadsruta — varje ny funktion sager vad den ar vard just nu.
