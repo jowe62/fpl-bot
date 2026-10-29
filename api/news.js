@@ -32,11 +32,15 @@ function textOf(block, tag) {
   let v = m[1].trim();
   const cdata = v.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
   if (cdata) v = cdata[1];
+  // Numeriska entiteter avkodas generellt. Att lappa en i taget fungerade
+  // inte: &#8216; slank igenom och syntes ra i rubriken pa sajten.
   return v
     .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;|&#8217;/g, "'")
-    .replace(/&nbsp;/g, " ").replace(/&#8211;|&#8212;/g, "-")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")   // sist: annars blir &amp;lt; till <
     .replace(/\s+/g, " ")
     .trim() || null;
 }
