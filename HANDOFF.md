@@ -245,10 +245,23 @@ gissar — fel antal spelare, fel fälttyper eller fel omgång kastas.
 återstoden** — rätt formel är `max(0, limit − made)`. Att läsa `limit` rakt av
 gav 1 när FPL:s eget UI sa 0. `value` ger truppvärdet i tiondelar.
 
-Bokmärkeskoden ligger i konversationen, inte i repot. Behöver den göras om:
-den hämtar `/api/my-team/{ID}/` och `/api/bootstrap-static/`, plockar `gw` ur
-`is_next`, skickar `{gw, picks, bank, freeTransfers, raw}` base64-kodat i
-`#team=` till `https://fpl-bot-lovat.vercel.app/`.
+**Bokmärkeskoden ligger nu i repot:** `bookmarklet.js` (läsbar, kommenterad) och
+`bookmarklet.min.txt` (raden att klistra in som bokmärkets adress). Den låg
+tidigare bara i en chatt, vilket gjorde den ogranskningsbar — och därför stod
+felet nedan oupptäckt.
+
+Den skickar `{gw, picks, bank, freeTransfers, raw}` base64-kodat i `#team=`.
+Detaljer som ser fel ut men är rätt: `bank` skickas i **tiondelar** (boten
+dividerar med 10) och `freeTransfers` skickas som `limit` (boten räknar om till
+`limit − made` ur `raw`). Rör inte utan att läsa `index.html` först.
+
+**Rättat 2026-10-29: `picks` skickas HELA.** Den gamla versionen gjorde
+`picks: t.picks.map(x=>({element, position, is_captain, is_vice_captain}))` och
+kastade därmed `selling_price`. Boten visade "Säljpris saknas" tills detta
+rättades. Utan fältet går budgeten inte att räkna: FPL säljer till inköpspris
+plus halva vinsten, så dagspris **överskattar** vad man har råd med. Uppmätt på
+GW8-truppen: 1,8m fel fördelat på sju spelare. Det publika picks-anropet bär
+inte fältet alls, så bokmärkesknappen är enda källan.
 
 ## Regler som läses ur API:t, inte hårdkodas
 - **Formation:** `element_types[].squad_min_play` / `squad_max_play`.
