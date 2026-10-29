@@ -306,6 +306,10 @@ export default async function handler(req, res) {
     const byTeam = {};
     const byPlayer = {};
     const bookmakersSedda = new Set();
+    // Vilka marknader bokmakarna faktiskt bjuder. Utan den har listan gick
+    // det inte att se SKILLNADEN mellan "boken saknar clean sheet" och "boken
+    // kallar den nagot annat an vi slar upp pa" - bada ser ut som noll lag.
+    const marknaderSedda = new Set();
 
     // 3. Vilka matcher hör till NÄSTA omgång?
     //
@@ -355,6 +359,7 @@ export default async function handler(req, res) {
       const books = odds.bookmakers || {};
       for (const namn of Object.keys(books)) bookmakersSedda.add(namn);
       const bookList = Object.values(books);
+      for (const markets of bookList) for (const mk of markets) marknaderSedda.add(mk.name);
 
       const findMarket = name => {
         for (const markets of bookList) {
@@ -422,10 +427,24 @@ export default async function handler(req, res) {
         const anytimes = own.map(e => e.anytimeProb).filter(Boolean);
         if (!anytimes.length) continue;
         if (csOpp == null) {
-          // Utan clean sheet-ankare går marginalen inte att mäta. Vi lämnar
-          // sannolikheterna råa och säger det i svaret hellre än att hitta på
-          // en exponent.
+          // Utan clean sheet-ankare gar marginalen inte att mata, och da far
+          // sannolikheterna inte skickas vidare.
+          //
+          // Forut lamnades de raa "och sades i svaret". Det var en tyst
+          // fallback: coverage.uncalibratedTeams rapporterade saken, men
+          // frontend laste aldrig faltet och matade in talen i xP anda.
+          //
+          // En ra 1/odds ar inte "nastan ratt" utan systematiskt uppblast.
+          // Matt pa det cachade svaret 2026-10-29, 289 spelare: summan av
+          // anytime-sannolikheterna lag over lagets forvantade mal for
+          // SAMTLIGA 20 lag, median 1,64 ganger, Tottenham 3,24. Summan ar
+          // vantevardet for antalet olika malskyttar och kan aldrig
+          // overstiga forvantade mal. Uppblasta malsannolikheter flyttar
+          // kaptensrankningen, sa botens egen xG-modell - som ar matt och
+          // kalibrerad - ar battre an odds vi inte kan de-vigga.
           uncalibratedTeams.add(teamId);
+          for (const pid of [...staged.keys()])
+            if (staged.get(pid).team === teamId) staged.delete(pid);
           continue;
         }
         const alpha = calibrationExponent(anytimes, -Math.log(csOpp));
@@ -457,6 +476,7 @@ export default async function handler(req, res) {
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
         bookmakers: [...bookmakersSedda],
+        marketsSeen: [...marknaderSedda].sort(),
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
         ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
