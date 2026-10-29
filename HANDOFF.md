@@ -618,7 +618,39 @@ du påstår något om rankningen.
    - `Totals` + `ML` — ger totalen och vem som leder, men inte splitten direkt.
 
    Bygg inget av det förrän `marketsSeen` visat vad som faktiskt finns.
-2. **Ingen assistmarknad → `attackScale` drar ner hela xG-modellen.**
+2. **William Hill svarar inte, och vi vet nu att det inte ar vart fel.**
+   Mätt 2026-10-29 i tre steg. Boken är vald OCH sparad i panelen (2/2 slots,
+   båda gröna), står `active=true status=ok` i `/bookmakers`, och parametern
+   går ut korrekt (`coverage.bookmakersRequested` = `Unibet,William%20Hill`,
+   efter att vi slutat procentkoda avgränsaren). Ändå är `coverage.bookmakers`
+   bara `["Unibet"]` över samtliga tio matcher.
+
+   Teorin att kodningen var orsaken var **fel** — fixen ändrade ingenting.
+   Återstår att boken inte har PL-odds i den här feeden, eller att slotten inte
+   slår igenom på gratisplanen.
+
+   Nästa steg om det blir aktuellt: sätt `ODDS_BOOKMAKERS=William Hill` ensamt i
+   Vercel, ladda en gång, läs `marketsSeen`, återställ. Inget kodbyte behövs —
+   miljövariabeln finns just för det. **Låg prioritet:** Team Total-ankaret ger
+   20/20 lag och 290 spelare med bara Unibet, så en andra bok är redundans.
+3. **Fyra spelare matchas inte, av fyra olika skäl.** Mätt 2026-10-29,
+   `coverage.unmatchedLabels`. Alla fyra är PL-spelare med riktig speltid, så
+   det är missar och inte korrekta överhopp:
+   - **Ferdi Kadioglu** (BHA, 517 min). Rent normaliseringsfel. Turkiskt
+     punktlöst `ı` (U+0131) sönderdelas inte av NFD och **raderas** sedan av
+     `[^a-z]`, så FPL:s "Kadıoğlu" blir `kadoglu` medan bokens "Kadioglu" blir
+     `kadioglu`. En rad i `norm()`, samma klass som `ø`→`o` som redan finns.
+   - **Abdul Fatawu Issahaku** (IPS, 443 min). FPL kallar honom "Fatawu",
+     alltså bokens MITTEN-token. `nameKeys()` tar bara sista ordet ur
+     etiketten, så "fatawu" slås aldrig upp. Vi indexerar FPL-sidan brett men
+     etikett-sidan smalt.
+   - **Rayan Vitor** (BOU, 702 min). Samma rot: FPL har "Vitor" i
+     `first_name`, som vi medvetet inte indexerar, och bokens sista ord
+     "Vitor" finns inte som efternamnsform.
+   - **Ephron Mason-Clarke** (COV, 326 min). Äkta stavningsskillnad, FPL har
+     "Mason-Clark" utan e. **Ska förbli omatchad** — att gissa här är precis
+     den tysta gissning projektet förbjuder.
+4. **Ingen assistmarknad → `attackScale` drar ner hela xG-modellen.**
    Upptäckt 2026-10-29. `oddsAttackXp` räknar
    `anytimeProb*goalPts + assistProb*3`, men `assistProb` är **alltid**
    frånvarande: boken bjuder ingen assistmarknad. Mätt: 0 av 289 spelare har
@@ -634,10 +666,10 @@ du påstår något om rankningen.
    Rätt fix är att jämföra lika med lika: skala mål mot mål och låt assist
    komma från xA i båda grenarna. Kräver att `attackPer90` plockas isär. Inte
    gjort, och storleken på felet är ännu inte mätt.
-3. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
+5. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
    klart mest arbete: en optimering över budget, formation, fria transfers och
    avdrag över N omgångar. Inte påbörjad.
-4. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
+6. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
    motsatsen — den var fel. `bootstrap.elements` saknar kaptensfält, men varje
    managers lag är publikt: `/leagues-classic/314/standings/` ger topplistan och
    `/entry/{id}/event/{gw}/picks/` ger deras trupp, kapten och chip. Ägande OCH
