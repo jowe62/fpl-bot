@@ -3374,7 +3374,16 @@ function App(){
         const tr = liveOk ? live.raw : null;
         if(tr && typeof tr.limit==="number" && typeof tr.made==="number")
           freeTransfers = Math.max(0, tr.limit - tr.made);
-        const myP=source.picks.map(p=>({...pb[p.element],sqPos:p.position,isCaptain:p.is_captain,isVice:p.is_vice_captain}));
+        // selling_price finns BARA i /api/my-team/, alltsa via bokmarkesknappen.
+        // Det publika picks-anropet bar det inte alls (verifierat: falten ar
+        // element, position, multiplier, is_captain, is_vice_captain,
+        // element_type). Saknas det blir det null, aldrig now_cost - FPL saljer
+        // till inkopspris plus halva vinsten, sa dagspris OVERSKATTAR budgeten
+        // och foreslar byten man inte har rad med. Uppmatt pa GW8-truppen:
+        // marknadsvarde 96,1m mot saljvarde 94,3m, sju av femton spelare.
+        const myP=source.picks.map(p=>({...pb[p.element],sqPos:p.position,
+          isCaptain:p.is_captain,isVice:p.is_vice_captain,
+          sellPrice: typeof p.selling_price==="number" ? p.selling_price : null}));
         const starters=myP.filter(p=>p.sqPos<=11);
         const bench=myP.filter(p=>p.sqPos>11).sort((a,b)=>a.sqPos-b.sqPos);
 
@@ -3405,10 +3414,14 @@ function App(){
 
         // Truppvärde: FPL ger det i tiondelar, och bara via /my-team/.
         const squadValue = tr && typeof tr.value==="number" ? tr.value/10 : null;
+        // Summan av sakra saljpriser. Saknas ett enda ar helheten inte sann,
+        // sa da blir den null i stallet for en delsumma som ser komplett ut.
+        const allaSell = myP.every(p=>p.sellPrice!=null);
+        const sellValue = allaSell ? myP.reduce((a,p)=>a+p.sellPrice,0)/10 : null;
         // Spara prognosen for den omgang vi planerar mot, sa nasta veckas
         // facit kan doma den.
         savePredictions(gw,[...starters,...bench],fm);
-        setFplData({bs,entry,fm,tb,gw,rawFx,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        setFplData({bs,entry,fm,tb,gw,rawFx,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,sellValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError({msg:e.message, status:e.status, path:e.path});}
       finally{setLoading(false);}
     })();
@@ -3445,7 +3458,7 @@ function App(){
       </div>
     </div>
   );
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,history,review,live,liveError}=fplData;
+  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,sellValue,history,review,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -3511,6 +3524,10 @@ function App(){
           <div style={c.stat}><div className="val" style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
           {squadValue!=null &&
             <div style={c.stat}><div className="val" style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
+          <div style={c.stat}>
+            <div className="val" style={c.statVal}>{sellValue!=null?`£${sellValue.toFixed(1)}m`:"–"}</div>
+            <div style={c.statLbl}>{sellValue!=null?"Säljvärde":"Säljpris saknas"}</div>
+          </div>
         </div>
       </div>
 
