@@ -40,6 +40,18 @@ const CACHE_MS = 6 * 60 * 60 * 1000; // 6 timmar
 // Sätts BARA pa lyckade svar. Ett 502 ska inte cachas i sex timmar.
 const CDN_CACHE = "public, s-maxage=21600, stale-while-revalidate=3600";
 
+// Ett svar DAR INGA ODDS KOM IGENOM far inte cachas som om det vore data.
+// Funktionen sparade forut sitt resultat oavsett utfall, sa nar leverantoren
+// svarade 403 pa alla tio matcher lag det tomma svaret kvar i sex timmar -
+// och boten fortsatte visa "inga odds" aven efter att leverantoren hamtat
+// sig. Uppmatt: updated-stampeln stod stilla medan nya anrop gjordes.
+//
+// Men inte heller noll cache: med 100 anrop i timmen hos leverantoren skulle
+// varje sidladdning under ett avbrott kosta elva nya anrop och gora saken
+// varre. Tio minuter later den aterhamta sig snabbt utan att hammras.
+const CDN_CACHE_TOMT = "public, s-maxage=600, must-revalidate";
+const CACHE_MS_TOMT = 10 * 60 * 1000;
+
 // ── Odds-API:ts lagnamn → FPL:s team.name ─────────────────────────────────
 // Enbart ÄKTA namnskillnader hör hemma här, dvs där FPL använder en kortform
 // som inte går att härleda ("Tottenham Hotspur" → "Spurs"). FC/AFC-affix
@@ -171,9 +183,14 @@ export default async function handler(req, res) {
     if (!key) throw new Error("ODDS_API_KEY saknas i miljön");
 
     // Servera cache om färsk.
-    if (CACHE.data && Date.now() - CACHE.ts < CACHE_MS) {
+    // Ett tomt svar far bara leva tio minuter, ett riktigt sex timmar.
+    const cacheAlder = CACHE.data
+      ? (Object.keys(CACHE.data.byTeam || {}).length > 0 ? CACHE_MS : CACHE_MS_TOMT)
+      : 0;
+    if (CACHE.data && Date.now() - CACHE.ts < cacheAlder) {
       res.setHeader("X-Odds-Cache", "hit");
-      res.setHeader("Cache-Control", CDN_CACHE);
+      res.setHeader("Cache-Control",
+        Object.keys(CACHE.data.byTeam || {}).length > 0 ? CDN_CACHE : CDN_CACHE_TOMT);
       return res.status(200).json(CACHE.data);
     }
 
@@ -426,8 +443,10 @@ export default async function handler(req, res) {
       },
     };
     CACHE = { data: payload, ts: Date.now() };
+    const fickOdds = Object.keys(byTeam).length > 0;
     res.setHeader("X-Odds-Cache", "miss");
-    res.setHeader("Cache-Control", CDN_CACHE);
+    res.setHeader("X-Odds-Teams", String(Object.keys(byTeam).length));
+    res.setHeader("Cache-Control", fickOdds ? CDN_CACHE : CDN_CACHE_TOMT);
     return res.status(200).json(payload);
   } catch (e) {
     // Ingen tyst fallback: säg tydligt att det gick fel, så artefakten
