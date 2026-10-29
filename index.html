@@ -1311,6 +1311,15 @@ function validateLiveSquad(d){
     if(typeof p.element!=="number" || typeof p.position!=="number")
       throw new Error("picks saknar element eller position");
   if(typeof d.gw!=="number") throw new Error("saknar omgång");
+  // Vems lag det ar. Utan faltet gick Richards trupp att spara under Johns
+  // nyckel, eftersom LIVE_KEY namnges efter det AKTIVA laget och inte efter
+  // vad nyttolasten faktiskt innehaller.
+  //
+  // Gamla sparade trupper saknar faltet och forkastas darfor en gang. Det ar
+  // avsiktligt: en trupp vi inte kan knyta till ett lag ar inte sann for
+  // nagon. Ett klick pa bokmarkesknappen lager det.
+  if(typeof d.entry!=="number") throw new Error("saknar entry — hämta laget med bokmärkesknappen igen");
+  if(!TEAMS.some(t=>t.id===d.entry)) throw new Error(`lag ${d.entry} finns inte i TEAMS`);
   return d;
 }
 
@@ -1334,8 +1343,12 @@ function captureLiveSquadFromHash(){
   try{
     const d = validateLiveSquad(JSON.parse(decodeURIComponent(escape(atob(m[1])))));
     d.savedAt = Date.now();
-    try{ localStorage.setItem(LIVE_KEY, JSON.stringify(d)); }catch{}
+    // Nyckeln foljer nyttolasten, inte det lag som rakar vara aktivt.
+    try{ localStorage.setItem(`glennos:myteam:${d.entry}`, JSON.stringify(d)); }catch{}
     history.replaceState(null,"",location.pathname+location.search);
+    // Hamtades ett ANNAT lag an det som visas: byt till det och ladda om.
+    // TEAM_ID satts vid sidladdning och gar inte att andra i efterhand.
+    if(d.entry !== TEAM_ID){ setActiveTeam(d.entry); location.reload(); return null; }
     return d;
   }catch(e){
     console.error("[GlennOS] kunde inte läsa truppen från bokmärkesknappen:", e.message);
@@ -3747,12 +3760,18 @@ function App(){
           : <div style={c.staleNote}>
               FPL publicerar en omgångs trupp först när dess deadline passerat, så
               byten inför GW{gw} syns inte här.
-              {TEAMS.find(t=>t.id===TEAM_ID)?.mine
-                ? <> Använd bokmärkesknappen för att hämta ditt aktuella lag.</>
-                : <> Det här är {TEAMS.find(t=>t.id===TEAM_ID)?.owner}s lag, och
-                    bokmärkesknappen kan bara hämta ditt eget — den läser FPL med
-                    din inloggning. För andras lag finns bara det som är publikt,
-                    alltså senast spelade omgång.</>}
+              {" "}Byten, flerveckorsplanen och lagförslagen behöver dessutom
+              säljpriser, som bara finns i det hämtade laget.
+              <div style={{marginTop:"10px",lineHeight:1.7}}>
+                Så här gör {TEAMS.find(t=>t.id===TEAM_ID)?.mine
+                  ? "du" : TEAMS.find(t=>t.id===TEAM_ID)?.owner}:
+                <br/>1. Lägg raden i <code>bookmarklet.min.txt</code> som adress i ett bokmärke.
+                <br/>2. Logga in på fantasy.premierleague.com.
+                <br/>3. Klicka på bokmärket. Boten öppnas med laget ifyllt.
+                <br/><span style={{color:T.mut}}>Samma bokmärke fungerar för alla — det
+                läser det lag man själv är inloggad på, och truppen lämnar aldrig
+                webbläsaren.</span>
+              </div>
             </div>}
         {liveError && <div style={c.errNote}>Bokmärkesknappen skickade något boten inte förstod: {liveError}</div>}
         <Pitch players={starters} fm={fm} tb={tb} bench={false}/>

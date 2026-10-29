@@ -250,7 +250,21 @@ gav 1 när FPL:s eget UI sa 0. `value` ger truppvärdet i tiondelar.
 tidigare bara i en chatt, vilket gjorde den ogranskningsbar — och därför stod
 felet nedan oupptäckt.
 
-Den skickar `{gw, picks, bank, freeTransfers, raw}` base64-kodat i `#team=`.
+Den skickar `{entry, gw, picks, bank, freeTransfers, raw}` base64-kodat i `#team=`.
+
+**Ändrat 2026-10-29: knappen fungerar för vem som helst.** Lag-id lästes
+tidigare ur en hårdkodad konstant (1036486), vilket gjorde den obrukbar för
+Richard — `/api/my-team/<någon annans id>/` ger 403. Nu läses id ur
+`/api/me/` → `player.entry`, alltså den inloggade sessionen. **Samma bokmärke
+fungerar för alla.**
+
+Nyttolasten bär därför `entry`, och boten sparar under `glennos:myteam:<entry>`
+i stället för under det *aktiva* lagets nyckel. Utan det kunde Richards trupp
+hamna under Johns nyckel. Hämtas ett annat lag än det som visas byter boten
+till det och laddar om, eftersom `TEAM_ID` sätts vid sidladdning.
+
+Trupper sparade före detta saknar `entry` och **förkastas en gång**. Avsiktligt:
+en trupp som inte går att knyta till ett lag är inte sann för någon.
 Detaljer som ser fel ut men är rätt: `bank` skickas i **tiondelar** (boten
 dividerar med 10) och `freeTransfers` skickas som `limit` (boten räknar om till
 `limit − made` ur `raw`). Rör inte utan att läsa `index.html` först.

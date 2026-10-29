@@ -34,12 +34,18 @@
 
 (async () => {
   try {
-    const I = 1036486;
     const j = async (u) => {
       const r = await fetch(u, { credentials: "include" });
       if (!r.ok) throw new Error(u + " gav HTTP " + r.status);
       return r.json();
     };
+    // Lag-id lases ur den INLOGGADE sessionen i stallet for att hardkodas.
+    // Forut stod 1036486 har, vilket gjorde knappen obrukbar for alla andra:
+    // /api/my-team/<nagon annans id>/ ger 403. Nu fungerar samma bokmarke for
+    // var och en som ar inloggad pa sitt eget lag.
+    const me = await j("/api/me/");
+    const I = me && me.player && me.player.entry;
+    if (!I) throw new Error("hittade inget lag-id - ar du inloggad pa FPL?");
     const [t, b] = await Promise.all([
       j("/api/my-team/" + I + "/"),
       j("/api/bootstrap-static/"),
@@ -54,6 +60,9 @@
     if (utan) throw new Error(utan + " spelare saknar selling_price");
 
     const p = {
+      // Vems lag det ar. Utan det vet boten inte vems trupp den tagit emot
+      // och kan spara Richards lag under Johns nyckel.
+      entry: I,
       gw: g,
       // HELA — selling_price och purchase_price foljer med
       picks: t.picks,
