@@ -1348,6 +1348,31 @@ function readLiveSquad(gw){
   return d;
 }
 
+// Hur gammal den hämtade truppen är, i klartext.
+//
+// Boten visade bara en tidsstämpel, och då måste man själv räkna ut om den
+// är före eller efter man ändrade laget. Det gick fel 2026-10-29: en trupp
+// hämtad 16:04 gällde rätt omgång, så boten accepterade den, men den var tagen
+// innan ett wildcard spelades. Boten visade den gamla truppen och ingenting
+// såg konstigt ut.
+//
+// Två timmar är en NUDGE, inte en upptäckt: boten kan inte veta om laget
+// ändrats. Kort nog att fånga en ändring samma kväll, långt nog att inte tjata
+// på en färsk hämtning.
+const STALE_MS = 2*60*60*1000;
+function squadAlder(ts){
+  const min = Math.max(0, Date.now()-ts)/60000;
+  const gammal = Date.now()-ts > STALE_MS;
+  if(min < 2)  return {txt:"nyss", gammal};
+  if(min < 60) return {txt:`för ${Math.round(min)} min sedan`, gammal};
+  // Avrunda NEDAT. Med round visade bade 1h50 och 2h10 "for 2 timmar sedan"
+  // medan bara den ena varnade - samma text, olika betydelse.
+  const h = Math.floor(min/60);
+  if(h < 24)   return {txt:`för ${h} ${h===1?"timme":"timmar"} sedan`, gammal};
+  const d = Math.floor(h/24);
+  return {txt:`för ${d} ${d===1?"dag":"dagar"} sedan`, gammal};
+}
+
 // Bokmärkesknappen öppnar boten med nyttolasten i URL-fragmentet. Fragmentet
 // skickas aldrig till servern, så truppen lämnar aldrig webbläsaren.
 function captureLiveSquadFromHash(){
@@ -1595,6 +1620,7 @@ const c={
   tab:(a)=>({flexShrink:0,padding:`0 0 ${SP[3]}px`,border:"none",background:"none",cursor:"pointer",fontSize:"15px",fontWeight:a?700:400,color:a?T.ink:T.mut,borderBottom:`2px solid ${a?T.brand:"transparent"}`,marginBottom:"-1px",fontFamily:"inherit"}),
 
   squad:{marginBottom:"28px"},
+  liveStale:{fontSize:"12px",lineHeight:1.6,color:T.warn,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.warn}`,maxWidth:"640px"},
   liveNote:{fontSize:"12px",lineHeight:1.6,color:T.good,marginBottom:`${SP[4]}px`,paddingLeft:`${SP[3]}px`,borderLeft:`2px solid ${T.good}`,maxWidth:"640px"},
   briefIntro:{fontSize:"13px",lineHeight:1.6,color:T.dim,maxWidth:"640px"},
   briefCard:{marginTop:`${SP[4]}px`,maxWidth:"640px",background:T.card,border:`1px solid ${T.line}`,borderLeft:`3px solid ${T.brand}`,borderRadius:`${R.ctrl}px`,padding:`${SP[5]}px`},
@@ -3763,8 +3789,13 @@ function App(){
           })()}
         </div>
         {live
-          ? <div style={c.liveNote}>
-              ● Trupp och bank hämtade från FPL {new Date(live.savedAt).toLocaleString("sv-SE",{dateStyle:"short",timeStyle:"short"})}.
+          ? <div style={squadAlder(live.savedAt).gammal ? c.liveStale : c.liveNote}>
+              ● Trupp och bank hämtade från FPL {squadAlder(live.savedAt).txt}
+              {" "}({new Date(live.savedAt).toLocaleString("sv-SE",{dateStyle:"short",timeStyle:"short"})}).
+              {squadAlder(live.savedAt).gammal &&
+                <> <strong>Har du bytt spelare eller spelat ett chip sedan dess visar
+                boten fel lag</strong> — den kan inte se det, eftersom FPL publicerar
+                omgången först efter deadline. Klicka bokmärkesknappen igen.</>}
               {!(live.raw && typeof live.raw.limit==="number" && typeof live.raw.made==="number") &&
                 <> Antalet fria transfers kom INTE med — det visade talet är härlett och kan vara fel.
                    {live.raw ? <> FPL skickade fälten: {Object.keys(live.raw).join(", ")}.</> : null}</>}
