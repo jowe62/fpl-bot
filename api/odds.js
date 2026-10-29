@@ -26,7 +26,14 @@ const FPL_BASE = "https://fantasy.premierleague.com/api";
 //
 // Varde ur miljon sa en andring av valet i panelen inte kraver en kodandring.
 // Standard ar den bokmakare kontot faktiskt har valt.
-const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet";
+// Namnen ar hamtade ordagrant ur /v3/bookmakers, inte gissade: "Unibet" och
+// "William Hill" med mellanslag. Listan har 458 poster med flera snarlika
+// (Unibet UK, Unibet SE, WilliamHill NJ), sa stavningen spelar roll.
+//
+// Tva bokmakare ger battre tackning utan att kosta fler anrop: uppslaget
+// nedan tar forsta boken som har marknaden, sa saknas malskytt hos den ena
+// fylls luckan av den andra.
+const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet,William Hill";
 const LEAGUE = "england-premier-league";
 const MAX_EVENTS = 20;
 
