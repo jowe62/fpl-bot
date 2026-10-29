@@ -34,6 +34,19 @@ const FPL_BASE = "https://fantasy.premierleague.com/api";
 // nedan tar forsta boken som har marknaden, sa saknas malskytt hos den ena
 // fylls luckan av den andra.
 const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet,William Hill";
+// Kommat ar LISTANS avgransare och ska vara literalt i URL:en. Bara
+// innehallet i varje namn kodas, dar mellanslaget i "William Hill" blir %20.
+//
+// Forut kordes hela strangen genom encodeURIComponent, vilket gav
+// "Unibet%2CWilliam%20Hill" - alltsa en kodad avgransare. Unibet kom anda
+// igenom, men William Hill dok aldrig upp i svaret trots att den var vald och
+// sparad i panelen (2/2 slots, bada markta Saved, matt pa skarmbild
+// 2026-10-29). Det ar fel enligt spec oavsett utfall, och den enda rimliga
+// forklaringen till att ett namn MED mellanslag faller medan ett utan
+// fungerar.
+const BOOKMAKER_PARAM = BOOKMAKERS.split(",")
+  .map(s => encodeURIComponent(s.trim()))
+  .join(",");
 const LEAGUE = "england-premier-league";
 const MAX_EVENTS = 20;
 // /odds/multi tar max tio eventIds och RAKNAS SOM ETT ANROP. Forut gjorde
@@ -443,7 +456,7 @@ export default async function handler(req, res) {
       let svar;
       try {
         svar = await oget(
-          `${ODDS_BASE}/odds/multi?eventIds=${ids}&bookmakers=${encodeURIComponent(BOOKMAKERS)}&apiKey=${key}`, kvot
+          `${ODDS_BASE}/odds/multi?eventIds=${ids}&bookmakers=${BOOKMAKER_PARAM}&apiKey=${key}`, kvot
         );
       } catch (e) {
         for (const ev of klump)
@@ -602,6 +615,7 @@ export default async function handler(req, res) {
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
         bookmakers: [...marknaderPerBok.keys()],
+        bookmakersRequested: BOOKMAKER_PARAM,
         rateLimit: kvot,
         marketsSeen: Object.fromEntries(
           [...marknaderPerBok].map(([bok, m]) => [bok, [...m].sort()])),
