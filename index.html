@@ -1366,8 +1366,21 @@ function freeTransfersFor(history, gw){
 }
 
 // ── Transfer recs ─────────────────────────────────────────────────────────────
+// Byten kraver SALJPRIS, inte dagspris. FPL saljer till inkopspris plus halva
+// vinsten, sa saljpriset ar alltid lagre an now_cost och dagspris OVERSKATTAR
+// budgeten - den farliga riktningen, eftersom boten da foreslar byten som inte
+// gar att gora. Uppmatt 2026-10-29: 1,1m over femton spelare.
+//
+// Priserna finns bara i /api/my-team/, alltsa via bokmarkesknappen. Saknas de
+// sager boten det i stallet for att rakna pa fel tal. Samma linje som
+// lagforslagen redan holl.
+function harSaljpriser(squad){ return squad.every(p=>p.sellPrice!=null); }
+
 function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
   const squadAll=[...starters,...bench];
+  // Kontraktet, inte en tyst grind: anroparen ska ha kollat harSaljpriser.
+  if(!harSaljpriser(squadAll))
+    throw new Error("buildRecs kräver säljpriser — anroparen ska kolla harSaljpriser först");
   const myIds=new Set(squadAll.map(p=>p.id));
   const pool=bs.elements.filter(p=>xMins(p)>=0.5&&!myIds.has(p.id));
 
@@ -1382,7 +1395,7 @@ function buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers){
   const trySwap=(scoreFn,extraFilter)=>{
     let best=null,bestG=-999;
     for(const out of starters){
-      const budget=(out.now_cost/10)+bank;
+      const budget=(out.sellPrice/10)+bank;
       // Spelaren som går ut frigör sin klubbplats.
       const roomFor=t=>(perTeam[t]||0)-(out.team===t?1:0) < TEAM_LIMIT;
       const opts=pool.filter(p=>p.element_type===out.element_type&&p.now_cost/10<=budget&&!used.has(p.id)&&roomFor(p.team)&&(!extraFilter||extraFilter(p)));
@@ -1872,8 +1885,9 @@ function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,sellValue,bank}){
 function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab}){
   const cap = useMemo(()=>[...starters].filter(p=>p.element_type!==1)
     .sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0],[starters,fm]);
-  const recs = useMemo(()=>buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers),
-    [starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
+  const kanBytas = harSaljpriser([...starters,...bench]);
+  const recs = useMemo(()=>kanBytas?buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers):[],
+    [kanBytas,starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
 
   const best = recs.length ? recs.reduce((a,b)=>b.net>a.net?b:a) : null;
   const worthIt = best && best.verdict!=="nej";
@@ -2124,7 +2138,15 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
 
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Transfer</div>
-        {worthIt ? <>
+        {!kanBytas ? <>
+          <div className="lead" style={c.weekLead}>Kan inte räkna på byten</div>
+          <div style={c.weekSub}>
+            Budgeten kräver dina säljpriser, och de finns bara när du hämtat laget med
+            bokmärkesknappen. FPL säljer till inköpspris plus halva vinsten, så att
+            räkna på dagspris skulle överskatta vad du har råd med och föreslå byten du
+            inte kan göra. Boten gissar hellre inte.
+          </div>
+        </> : worthIt ? <>
           <div className="lead" style={c.weekLead}>Byt {best.out} mot {best.inn}</div>
           <div style={c.weekSub}>
             Vinst {best.gain>=0?"+":""}{best.gain.toFixed(1)} xP över {best.horizon}.
@@ -3599,7 +3621,14 @@ function App(){
             {live?.raw?.status==="cost" && <> FPL säger att din nuvarande plan redan kostar <strong>−{live.raw.cost}</strong>.</>}
             {" "}Förslagen nedan är <em>alternativ</em> — de är inte tre byten att göra.
           </div>
-          <button style={c.btn(analyzing)} onClick={runTransfers} disabled={analyzing}>{analyzing?"Analyserar...":"✦ Visa mina alternativ"}</button>
+          {harSaljpriser([...starters,...bench])
+            ? <button style={c.btn(analyzing)} onClick={runTransfers} disabled={analyzing}>{analyzing?"Analyserar...":"✦ Visa mina alternativ"}</button>
+            : <div style={{...c.ftBox,borderColor:T.warn}}>
+                <strong>Säljpriserna saknas.</strong> Budgeten för ett byte är spelarens
+                säljpris plus banken, och säljpriset finns bara när du hämtat laget med
+                bokmärkesknappen. Att räkna på dagspris överskattar budgeten med upp till
+                0,4m per spelare, och då föreslår boten byten du inte kan göra.
+              </div>}
           {results&&<div style={{marginTop:"16px"}}>
             {results.every(r=>r.verdict==="nej") &&
               <div style={{...c.ftBox,borderColor:T.good,color:T.good}}>
