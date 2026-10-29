@@ -82,6 +82,24 @@ och det antagandet höll hela oddsmodellen nere i dagar. Så här är det:
 | `/markets?sport=football` | **0, ingen nyckel** | marknadskatalogen |
 | `/bookmakers` | **0, ingen nyckel** | namn + `status`/`reason` |
 
+**Vilka marknader boken faktiskt bjuder (mätt 2026-10-29 via
+`coverage.marketsSeen`).** Unibet ger 48 marknader på PL-matcher. Två som vi
+tidigare antog fanns gör det **inte**:
+
+- **`Clean Sheet Home` / `Clean Sheet Away` finns inte.** Namnen är rätt
+  (`/markets` bekräftar dem), boken prissätter dem bara inte. Ankaret är därför
+  `Team Total Home` / `Team Total Away`, som finns och är **bättre**: clean
+  sheet ger bara P(0 mål), lagtotalen ger hela mållinjen. Se
+  "Marginalkalibrering" nedan.
+- **Ingen assistmarknad alls.** `Player To Score or Assist` och
+  `Player To Assist` saknas båda. Mätt: noll av 289 spelare har någonsin fått
+  `assistProb`. Se "Öppna trådar".
+
+Finns: `Anytime Goalscorer`, `To Score 2+/3+ Goals`, `Team Total Home/Away`,
+`Totals`, `ML`, `Correct Score`, `Both Teams To Score`, `Double Chance`,
+`Draw No Bet`, `Spread`, plus skott-, hörn-, kort-, foul- och
+målvaktsräddningsmarknader.
+
 De två sista är gratis och kräver ingen nyckel. **Felsök alltid där först** —
 de svarar på "heter marknaden så här?" och "är boken uppe?" utan att kosta ett
 enda anrop av kvoten.
@@ -122,13 +140,28 @@ second_name). Förnamn indexeras medvetet INTE. Etiketten matchas mot **båda** 
 i matchen samtidigt och måste peka ut exakt en spelare; annars hoppas den över.
 Bindestreck hålls ihop ("Gibbs-White" är inte "white").
 
-**Marginalkalibrering.** Clean sheet de-viggas direkt (`y/(y+n)`). Anytime och
-assist saknar nej-sida och kalibreras i stället lagvis: summan av anytime-
+**Marginalkalibrering.** Ankaret är lagets förväntade mål, `lambda`, läst ur
+`Team Total Home`/`Team Total Away` (`lambdaFromTeamTotal`). Marknaden är
+tvåsidig, så marginalen normaliseras bort rad för rad:
+`P(over) = (1/o_over) / (1/o_over + 1/o_under)`. Marginalen försvinner helt i
+kvoten. **Bara halvlinjer** används; på en heltalslinje är exakt N mål en push,
+så sidorna summerar inte till ett. `lambda` söks så att Poisson träffar alla
+erbjudna linjer bäst (boken ger normalt två till fyra).
+
+Hållen nolla faller ut gratis: ett lag håller nollan precis när motståndaren
+gör noll mål, alltså `csProb = e^-lambda(motståndaren)`.
+
+Anytime saknar nej-sida och kalibreras lagvis: summan av anytime-
 sannolikheter är väntevärdet för antalet olika målskyttar och kan aldrig
-överstiga förväntade mål, som fås ur motståndarens (redan de-viggade) clean
-sheet-odds via `P(0 mål) = e^-lambda`. Vi söker exponenten `alpha` så att
+överstiga `lambda`. Vi söker exponenten `alpha` så att
 `sum(p^alpha) = lambda`. Potens, inte platt tal, eftersom marginalen sitter i
 långskotten — mätt låg summan 2,7 gånger över taket för alla 20 lag.
+
+Mätt 2026-10-29: `lambda` återvinns exakt (till rutans 0,01) i 72 fall,
+`lambda` 0,6–3,5, en till tre linjer, marginal 0/6/12 %. Observera vad det
+*inte* visar — testet genererar oddsen ur samma Poisson-antagande som inversen
+använder, så det verifierar inversionen, inte att bokens linjer är Poisson.
+De-vigging-steget är däremot exakt oberoende av det.
 Rör aldrig anytime som rå `1/odds` igen; det snedvrider rankningen mellan
 positioner, vilket är exakt vad Kapten- och Byten-flikarna gör.
 
@@ -585,10 +618,26 @@ du påstår något om rankningen.
    - `Totals` + `ML` — ger totalen och vem som leder, men inte splitten direkt.
 
    Bygg inget av det förrän `marketsSeen` visat vad som faktiskt finns.
-2. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
+2. **Ingen assistmarknad → `attackScale` drar ner hela xG-modellen.**
+   Upptäckt 2026-10-29. `oddsAttackXp` räknar
+   `anytimeProb*goalPts + assistProb*3`, men `assistProb` är **alltid**
+   frånvarande: boken bjuder ingen assistmarknad. Mätt: 0 av 289 spelare har
+   den. Oddsgrenen är alltså mål-bara.
+
+   Det vore oskyldigt om det stannade där, men `calibrateAttackScale` är en
+   **global kvot** `sumOdds/sumProxy` som skalar xG-proxyn så att den matchar
+   oddsnivån. Proxyn innehåller assist (`0.6*goalW + 0.4*3`), oddsen inte, så
+   hela xG-modellen skalas ner mot ett tal som saknar assist — och
+   `SEASON.attackScale` används i xG-grenen för **alla** omgångar, inte bara
+   nästa. Gapet propagerar.
+
+   Rätt fix är att jämföra lika med lika: skala mål mot mål och låt assist
+   komma från xA i båda grenarna. Kräver att `attackPer90` plockas isär. Inte
+   gjort, och storleken på felet är ännu inte mätt.
+3. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
    klart mest arbete: en optimering över budget, formation, fria transfers och
    avdrag över N omgångar. Inte påbörjad.
-3. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
+4. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
    motsatsen — den var fel. `bootstrap.elements` saknar kaptensfält, men varje
    managers lag är publikt: `/leagues-classic/314/standings/` ger topplistan och
    `/entry/{id}/event/{gw}/picks/` ger deras trupp, kapten och chip. Ägande OCH
@@ -611,6 +660,12 @@ du påstår något om rankningen.
   är pushad finns inte.
 - Kör git- och vercel-kommandon från repo-roten. `vercel link` körd från hemkatalogen
   länkar `~` till projektet i stället för repot.
+- **`byTeam[t].csProb` bär bara EN match.** Vid dubbelomgång spelar laget två
+  gånger men nyckeln skrivs över av den sista matchen, och `estimateXpAt` loopar
+  över båda matcherna med samma odds-csProb. Upptäckt 2026-10-29 i harnessen
+  (lag 2 fick 0,3329 där 0,1653 var rätt). Fanns långt innan dess, inte fixat.
+  Odds gäller bara nästa omgång, så felet slår bara till när nästa omgång är
+  dubbel.
 - Skriv aldrig "fixad, ej deployad" i det här dokumentet utan att också säga hur man
   verifierar det. Punkt 1 stod så medan fixen inte fanns i repot alls — den kostade
   en session att upptäcka, för påståendet lät trovärdigt.
