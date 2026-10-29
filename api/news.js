@@ -26,6 +26,11 @@ const MAX_ITEMS = 40;
 let CACHE = { data: null, ts: 0 };
 const CACHE_MS = 20 * 60 * 1000;
 
+// CDN-cache, samma skal som i odds.js: minnescachen tomms vid varje
+// kallstart. Lagre insats har eftersom flodet ar gratis och latt, men man
+// hammrar inte en sajt man lanar rubriker fran. Satts bara pa lyckade svar.
+const CDN_CACHE = "public, s-maxage=1200, stale-while-revalidate=1800";
+
 function textOf(block, tag) {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
   if (!m) return null;
@@ -49,6 +54,7 @@ export default async function handler(req, res) {
   try {
     if (CACHE.data && Date.now() - CACHE.ts < CACHE_MS) {
       res.setHeader("X-News-Cache", "hit");
+      res.setHeader("Cache-Control", CDN_CACHE);
       return res.status(200).json(CACHE.data);
     }
 
@@ -82,6 +88,7 @@ export default async function handler(req, res) {
     };
     CACHE = { data: payload, ts: Date.now() };
     res.setHeader("X-News-Cache", "miss");
+    res.setHeader("Cache-Control", CDN_CACHE);
     return res.status(200).json(payload);
   } catch (e) {
     return res.status(502).json({ error: String(e.message || e) });
