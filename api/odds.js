@@ -36,6 +36,12 @@ const FPL_BASE = "https://fantasy.premierleague.com/api";
 const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet,William Hill";
 const LEAGUE = "england-premier-league";
 const MAX_EVENTS = 20;
+// /odds/multi tar max tio eventIds och RAKNAS SOM ETT ANROP. Forut gjorde
+// koden ett anrop per match, sa en uppdatering kostade elva av gratisplanens
+// hundra i timmen. Nu kostar den tva: ett for /events och ett for matcherna.
+// Det var inte en optimering utan orsaken till att vi slog i taket och fick
+// 429 pa samtliga tio matcher 2026-10-29.
+const CHUNK = 10;
 
 // Enkel in-memory-cache. Vercel återanvänder ofta samma instans mellan
 // anrop under en period, så detta räcker för att skydda kvoten. Vill du ha
@@ -44,8 +50,9 @@ let CACHE = { data: null, ts: 0 };
 const CACHE_MS = 6 * 60 * 60 * 1000; // 6 timmar
 
 // CDN-cache. Minnescachen ovan lever bara sa lange Vercel haller instansen
-// vid liv, och varje kallstart tommer den. En kallstart kostar TOLV anrop
-// uppstroms: bootstrap, events och tio matcher. Utan den har headern
+// vid liv, och varje kallstart tommer den. En kallstart kostar TRE anrop
+// uppstroms: FPL:s bootstrap, /events och ett /odds/multi. Tva av dem racknas
+// mot oddskvoten. (Fore CHUNK var det tolv, darav 429:orna.) Utan den har headern
 // cachade CDN:en ingenting (x-vercel-cache: MISS varje gang), sa varje
 // sidladdning riskerade en full omhamtning.
 //
@@ -66,8 +73,11 @@ const CDN_CACHE = "public, s-maxage=21600, stale-while-revalidate=3600";
 // sig. Uppmatt: updated-stampeln stod stilla medan nya anrop gjordes.
 //
 // Men inte heller noll cache: med 100 anrop i timmen hos leverantoren skulle
-// varje sidladdning under ett avbrott kosta elva nya anrop och gora saken
-// varre. Tio minuter later den aterhamta sig snabbt utan att hammras.
+// varje sidladdning under ett avbrott kosta nya anrop och gora saken varre.
+// Tio minuter later den aterhamta sig snabbt utan att hammras: sex
+// uppdateringar i timmen gånger tva anrop ar 12 av 100. Med den gamla
+// endpointen hade samma tio minuter kostat 66 i timmen, vilket ar att
+// hammra - det var halva orsaken till att kvoten tog slut.
 const CDN_CACHE_TOMT = "public, s-maxage=600, must-revalidate";
 const CACHE_MS_TOMT = 10 * 60 * 1000;
 
@@ -158,6 +168,27 @@ const FPL_HEADERS = {
 
 async function jget(url, headers) {
   const r = await fetch(url, headers ? { headers } : undefined);
+  if (!r.ok) throw new Error(`HTTP ${r.status} on ${url.split("?")[0]}`);
+  return r.json();
+}
+
+// Odds-API skickar kvoten pa VARJE svar:
+//   x-ratelimit-limit / -remaining / -reset
+// Utan att lasa dem gick "slut pa kvoten" inte att skilja fran "leverantoren
+// krånglar" - bada syns bara som HTTP 429 pa varje match. Nu star siffran i
+// svaret, sa den gar att lasa utan att gissa.
+//
+// Sinken skickas in i stallet for att ligga pa modulnivå: en varm
+// Lambda-instans delas mellan anrop och skulle da rapportera en gammal
+// matning som om den var farsk.
+async function oget(url, kvot) {
+  const r = await fetch(url);
+  const limit = r.headers.get("x-ratelimit-limit");
+  if (limit != null) {
+    kvot.limit = Number(limit);
+    kvot.remaining = Number(r.headers.get("x-ratelimit-remaining"));
+    kvot.reset = r.headers.get("x-ratelimit-reset");
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url.split("?")[0]}`);
   return r.json();
 }
@@ -298,8 +329,9 @@ export default async function handler(req, res) {
     }
 
     // 2. Odds-API: kommande PL-events.
-    const events = await jget(
-      `${ODDS_BASE}/events?sport=football&league=${LEAGUE}&apiKey=${key}`
+    const kvot = { limit: null, remaining: null, reset: null };
+    const events = await oget(
+      `${ODDS_BASE}/events?sport=football&league=${LEAGUE}&apiKey=${key}`, kvot
     );
     const upcoming = events.filter(e => e.status === "pending");
 
@@ -333,22 +365,42 @@ export default async function handler(req, res) {
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // Taket skyddar gratiskvoten (100 anrop/h) om fönstret mot förmodan skulle
-    // svälla. En dubbelomgång ligger normalt runt 14-16 matcher.
+    // svälla. En dubbelomgång ligger normalt runt 14-16 matcher, alltsa tva
+    // klumpar och tva anrop.
     const requested = inWindow.slice(0, MAX_EVENTS);
     const failedEvents = [];
     const calibration = {};          // fplTeamId -> exponent som användes
     const uncalibratedTeams = new Set();
-    for (const ev of requested) {
-      let odds;
+
+    // Hamta oddsen i klumpar om tio. Ett fallerat anrop faller nu pa tio
+    // matcher i stallet for en, sa var och en av dem rapporteras for sig -
+    // en match som tappas ska aldrig forsvinna tyst.
+    const oddsPerEvent = new Map();
+    for (let i = 0; i < requested.length; i += CHUNK) {
+      const klump = requested.slice(i, i + CHUNK);
+      const ids = klump.map(e => e.id).join(",");
+      let svar;
       try {
-        odds = await jget(
-          `${ODDS_BASE}/odds?eventId=${ev.id}&bookmakers=${encodeURIComponent(BOOKMAKERS)}&apiKey=${key}`
+        svar = await oget(
+          `${ODDS_BASE}/odds/multi?eventIds=${ids}&bookmakers=${encodeURIComponent(BOOKMAKERS)}&apiKey=${key}`, kvot
         );
       } catch (e) {
-        // Räknas och rapporteras — en match som tappas ska aldrig försvinna tyst.
-        failedEvents.push({ event: `${ev.home} v ${ev.away}`, error: String(e.message || e) });
+        for (const ev of klump)
+          failedEvents.push({ event: `${ev.home} v ${ev.away}`, error: String(e.message || e) });
         continue;
       }
+      // Kontraktet sager "array of event odds objects". Nagot annat ar ett
+      // trasigt antagande om upstream och ska braka, inte tolkas.
+      if (!Array.isArray(svar)) throw new Error("/odds/multi svarade inte med en array");
+      for (const o of svar) oddsPerEvent.set(o.id, o);
+      for (const ev of klump)
+        if (!oddsPerEvent.has(ev.id))
+          failedEvents.push({ event: `${ev.home} v ${ev.away}`, error: "saknas i /odds/multi-svaret" });
+    }
+
+    for (const ev of requested) {
+      const odds = oddsPerEvent.get(ev.id);
+      if (!odds) continue;   // redan rapporterad i failedEvents
 
       const homeFpl = oddsTeamToFplId(ev.home);
       const awayFpl = oddsTeamToFplId(ev.away);
@@ -476,6 +528,7 @@ export default async function handler(req, res) {
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
         bookmakers: [...bookmakersSedda],
+        rateLimit: kvot,
         marketsSeen: [...marknaderSedda].sort(),
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
