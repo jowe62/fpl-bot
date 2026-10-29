@@ -1795,13 +1795,33 @@ function SquadSuggestion({mode,bs,fm,tb,budget,squad}){
   );
 }
 
-function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,squadValue}){
-  // FPL:s truppvarde INKLUDERAR redan banken. Uppmatt over fyra omgangar:
-  // value minus bank landar pa spelarnas prissumma (avvikelse 0,1-0,2 fran
-  // skillnaden mellan forsaljningspris och dagspris), medan value utan
-  // avdrag avviker med exakt bankens belopp. Att addera banken har gav
-  // darfor en budget som var for hog, och lag du inte haft rad med.
-  const budget = squadValue;
+function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,sellValue,bank}){
+  // Wildcard och free hit: du saljer hela truppen till SALJPRIS och handlar
+  // for det plus banken. Alltsa summa selling_price + bank.
+  //
+  // Har stod forut `budget = squadValue`, med motiveringen att FPL:s
+  // truppvarde redan innehaller banken. Den slutsatsen var fel, och nu nar
+  // selling_price finns gar det att visa varfor. Uppmatt 2026-10-29 pa
+  // GW9-truppen:
+  //
+  //   transfers.value (my-team)   96,1   = summa now_cost, EXAKT
+  //   summa selling_price         95,0
+  //   bank                         4,3
+  //
+  // transfers.value ar alltsa marknadsvarde och innehaller INTE banken.
+  // (Forvaxla den inte med entry_history.value ur det publika picks-anropet,
+  //  som ar ett annat tal med samma namn.)
+  //
+  // Den gamla matningen upptackte korrekt att `squadValue + bank` gav en for
+  // hog budget, men drog fel slutsats om orsaken: felet var 1,1m, vilket ar
+  // exakt skillnaden mellan marknads- och saljvarde. Utan selling_price gick
+  // det inte att se. Fixen gjorde i stallet budgeten 3,2m for LAG.
+  //
+  // Ratt svar: 95,0 + 4,3 = 99,3m.
+  //
+  // Saknas saljpriserna blir budgeten null, och SquadSuggestion sager att den
+  // behover bokmarkesknappen i stallet for att gissa.
+  const budget = sellValue!=null ? sellValue + bank : null;
   const chips=buildChipAdvice(starters,bench,fm,tb,gw,bs);
   return(
     <div>
@@ -3591,7 +3611,7 @@ function App(){
           {!results&&<div style={{fontSize:"13px",color:T.mut,textAlign:"center",padding:"24px 0"}}>Tryck på knappen för transferrekommendationer.</div>}
         </div>
       )}
-      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail} squadValue={squadValue}/>}
+      {tab==="chips"&&<ChipTab starters={starters} bench={bench} fm={fm} tb={tb} gw={gw} bs={bs} chipAvail={chipAvail} sellValue={sellValue} bank={bank}/>}
       {tab==="fixtures"&&<><FixtureTicker starters={starters} fm={fm} tb={tb}/>
         <RotationPlan squad={[...starters,...bench]} fm={fm} bs={bs} gw={gw} tb={tb}/></>}
       {tab==="captain"&&<CaptainTab starters={starters} fm={fm} tb={tb}/>}
