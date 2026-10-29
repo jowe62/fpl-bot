@@ -55,7 +55,8 @@
 
     const p = {
       gw: g,
-      picks: t.picks,              // HELA — selling_price och purchase_price med
+      // HELA — selling_price och purchase_price foljer med
+      picks: t.picks,
       bank: t.transfers && t.transfers.bank,
       freeTransfers: t.transfers && t.transfers.limit,
       raw: t.transfers,
