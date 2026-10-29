@@ -454,6 +454,7 @@ export default async function handler(req, res) {
     // sa orsaken syns i samma svar, i stallet for att krava en ny deploy for
     // att overhuvudtaget se hur raderna ser ut. Normalt ar den null.
     let teamTotalSample = null;
+    let assistSample = null;
     const oddsPerEvent = new Map();
     for (let i = 0; i < requested.length; i += CHUNK) {
       const klump = requested.slice(i, i + CHUNK);
@@ -495,12 +496,22 @@ export default async function handler(req, res) {
         marknaderPerBok.set(namn, set);
       }
 
+      // Rikaste varianten av marknaden, inte den forsta. Nar tva bocker bada
+      // har samma marknad avgjorde forut nyckelordningen i JSON-svaret vilken
+      // som vann, vilket ar godtyckligt. Matt 2026-10-29: Paddy Power kom
+      // forst och listade farre malskyttar an Unibet, sa 28 spelare foll bort
+      // utan att nagot sade ifran.
+      //
+      // Marknaden tas fortfarande fran EN bok, aldrig sammanslagen. Bockerna
+      // har olika marginal, och kalibreringen anpassar en exponent per lag -
+      // en blandad lista skulle gora den exponenten meningslos.
       const findMarket = name => {
+        let bast = null;
         for (const markets of bookList) {
           const m = markets.find(mk => mk.name === name);
-          if (m) return m;
+          if (m && (!bast || (m.odds?.length ?? 0) > (bast.odds?.length ?? 0))) bast = m;
         }
-        return null;
+        return bast;
       };
 
       // Lagens forvantade mal, direkt ur bokens egen lagtotal. Se
@@ -549,17 +560,29 @@ export default async function handler(req, res) {
         }
       }
 
-      // Assist via "Player To Score or Assist" → (Assist)-selektioner.
-      const sa = findMarket("Player To Score or Assist");
-      if (sa) {
-        for (const sel of sa.odds) {
-          if (!/\(Assist\)/i.test(sel.label)) continue;
+      // Assist ur "Player To Assist": en selektion per spelare, samma form som
+      // Anytime Goalscorer ({label, over}).
+      //
+      // Forut lastes "Player To Score or Assist" och (Assist)-markta
+      // selektioner plockades ut. Det gav noll traffar i 289 av 289 fall,
+      // eftersom ingen av bockerna markte selektionerna sa. Och marknaden ar
+      // fel verktyg: den ar P(mal ELLER assist), och att fa P(assist) ur den
+      // kraver bade P(mal) och en antagen korrelation. "Player To Assist" ar
+      // direkt det vi vill ha. Matt 2026-10-29: Paddy Power bjuder bada
+      // marknaderna, Unibet ingen av dem.
+      const assist = findMarket("Player To Assist");
+      if (assist) {
+        let traffar = 0;
+        for (const sel of assist.odds) {
           const prob = impliedProb(sel.over);
           if (!prob) continue;
-          const clean = sel.label.replace(/\(.*?\)/g, "").trim();
-          const pid = matchPlayer(clean, fixtureTeams);
-          if (pid) stage(pid, "assistProb", prob);
+          const pid = matchPlayer(sel.label, fixtureTeams);
+          if (pid) { stage(pid, "assistProb", prob); traffar++; }
         }
+        // Marknaden finns men ingenting gick att lasa ur den: da ar det
+        // formen eller etiketterna som inte stammer. Rått prov i samma svar.
+        if (!traffar && assistSample === null)
+          assistSample = { market: "Player To Assist", odds: (assist.odds || []).slice(0, 4) };
       }
 
       // Kalibrera bort marginalen, lagvis, mot lagets egen forvantade mal.
@@ -625,6 +648,7 @@ export default async function handler(req, res) {
         marketsSeen: Object.fromEntries(
           [...marknaderPerBok].map(([bok, m]) => [bok, [...m].sort()])),
         teamTotalSample,
+        assistSample,
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
         ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
