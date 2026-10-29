@@ -70,8 +70,13 @@
       freeTransfers: t.transfers && t.transfers.limit,
       raw: t.transfers,
     };
-    open("https://fpl-bot-lovat.vercel.app/#team=" +
-         btoa(unescape(encodeURIComponent(JSON.stringify(p)))), "_blank");
+    // location.href, INTE open(..., "_blank"). Mobilwebblasare blockerar ett
+    // popup-fonster som oppnas efter ett await, eftersom anvandargesten da
+    // raknas som forbrukad - anropet gor tyst ingenting och knappen ser trasig
+    // ut. Navigering blockeras aldrig. Priset ar att FPL-fliken ersatts, och
+    // bakatknappen tar dig tillbaka.
+    location.href = "https://fpl-bot-lovat.vercel.app/#team=" +
+      btoa(unescape(encodeURIComponent(JSON.stringify(p))));
   } catch (e) {
     alert("GLENN/OS: " + e.message);
   }
