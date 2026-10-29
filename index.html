@@ -234,10 +234,18 @@ const ODDS = {
     if (d.error) throw new Error(d.error);
     // Nycklar kommer som strängar från JSON — normalisera till heltal så de
     // matchar FPL:s numeriska team/player-id i modellen.
+    // Kontraktet ar EN POST PER MATCH, alltsa en lista. Ett cachat svar i det
+    // gamla formatet (ett objekt per lag) skulle annars ge "find is not a
+    // function" mitt i xP-berakningen och svartna hela boten. Hellre
+    // "odds ej tillgangligt" an en vit sida.
+    const lista = (namn, v) => {
+      if (!Array.isArray(v)) throw new Error(`odds-svaret har gammalt format: ${namn} ska vara en lista per match`);
+      return v;
+    };
     this.byTeam = {};
-    for (const k of Object.keys(d.byTeam || {})) this.byTeam[+k] = d.byTeam[k];
+    for (const k of Object.keys(d.byTeam || {})) this.byTeam[+k] = lista("byTeam", d.byTeam[k]);
     this.byPlayer = {};
-    for (const k of Object.keys(d.byPlayer || {})) this.byPlayer[+k] = d.byPlayer[k];
+    for (const k of Object.keys(d.byPlayer || {})) this.byPlayer[+k] = lista("byPlayer", d.byPlayer[k]);
     this.coverage = d.coverage || null;
     // Tomt svar = ingen matchtäckning just nu; behandla som "ej tillgängligt"
     // istället för att låtsas att odds-modellen är aktiv utan data.
