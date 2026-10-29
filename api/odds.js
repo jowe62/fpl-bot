@@ -14,7 +14,17 @@
 
 const ODDS_BASE = "https://api.odds-api.io/v3";
 const FPL_BASE = "https://fantasy.premierleague.com/api";
-const BOOKMAKERS = "Bet365,Unibet";
+// INGEN fast bokmakarlista. Koden bad forut om "Bet365,Unibet" och fick
+// 403 pa varje match med texten "Bet365 is only available on our paid
+// plans" — hela oddsmodellen lag nere av en hardkodad parameter.
+//
+// Utan filter levererar leverantoren de bokmakare planen tillater, vilka de
+// nu ar. Marknadsuppslaget nedan tar anda forsta boken som har marknaden, sa
+// koden var redan plan-agnostisk i allt utom sjalva fragan. Det blir ocksa
+// battre av sig sjalvt om planen nagon gang uppgraderas.
+//
+// Vilka som faktiskt svarade rapporteras i coverage, sa det aldrig ar en
+// gissning vilken kalla ett tal kommer fran.
 const LEAGUE = "england-premier-league";
 const MAX_EVENTS = 20;
 
@@ -286,6 +296,7 @@ export default async function handler(req, res) {
 
     const byTeam = {};
     const byPlayer = {};
+    const bookmakersSedda = new Set();
 
     // 3. Vilka matcher hör till NÄSTA omgång?
     //
@@ -318,7 +329,7 @@ export default async function handler(req, res) {
       let odds;
       try {
         odds = await jget(
-          `${ODDS_BASE}/odds?eventId=${ev.id}&bookmakers=${BOOKMAKERS}&apiKey=${key}`
+          `${ODDS_BASE}/odds?eventId=${ev.id}&apiKey=${key}`
         );
       } catch (e) {
         // Räknas och rapporteras — en match som tappas ska aldrig försvinna tyst.
@@ -333,6 +344,7 @@ export default async function handler(req, res) {
       // Böckerna ligger under odds.bookmakers.{Bet365|Unibet} som en array
       // av marknader. Vi tar den första bok som har respektive marknad.
       const books = odds.bookmakers || {};
+      for (const namn of Object.keys(books)) bookmakersSedda.add(namn);
       const bookList = Object.values(books);
 
       const findMarket = name => {
@@ -435,6 +447,7 @@ export default async function handler(req, res) {
         gameweek: nextEvent.id,
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
+        bookmakers: [...bookmakersSedda],
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
         ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
