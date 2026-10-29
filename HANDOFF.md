@@ -659,39 +659,27 @@ du påstår något om rankningen.
    blev aldrig fastställd. Ersättes av Paddy Power, som fungerade direkt.
    Teorin att procentkodad avgränsare var orsaken var **fel** — fixen var rätt
    enligt spec men ändrade ingenting.
-4. **Fyra spelare matchas inte, av fyra olika skäl.** Mätt 2026-10-29,
-   `coverage.unmatchedLabels`. Alla fyra är PL-spelare med riktig speltid, så
-   det är missar och inte korrekta överhopp:
-   - **Ferdi Kadioglu** (BHA, 517 min). Rent normaliseringsfel. Turkiskt
-     punktlöst `ı` (U+0131) sönderdelas inte av NFD och **raderas** sedan av
-     `[^a-z]`, så FPL:s "Kadıoğlu" blir `kadoglu` medan bokens "Kadioglu" blir
-     `kadioglu`. En rad i `norm()`, samma klass som `ø`→`o` som redan finns.
-   - **Abdul Fatawu Issahaku** (IPS, 443 min). FPL kallar honom "Fatawu",
-     alltså bokens MITTEN-token. `nameKeys()` tar bara sista ordet ur
-     etiketten, så "fatawu" slås aldrig upp. Vi indexerar FPL-sidan brett men
-     etikett-sidan smalt.
-   - **Rayan Vitor** (BOU, 702 min). Samma rot: FPL har "Vitor" i
-     `first_name`, som vi medvetet inte indexerar, och bokens sista ord
-     "Vitor" finns inte som efternamnsform.
-   - **Ephron Mason-Clarke** (COV, 326 min). Äkta stavningsskillnad, FPL har
-     "Mason-Clark" utan e. **Ska förbli omatchad** — att gissa här är precis
-     den tysta gissning projektet förbjuder.
+4. **Löst 2026-10-29: namnmatchningen.** Stod här som "fyra spelare matchas
+   inte". Två buggar låg bakom:
+   - Tecken som NFD inte sönderdelar **raderades tyst** av `[^a-z]`, vilket
+     inte ger ett fel utan ett felstavat namn som aldrig matchar. Uppmätt över
+     hela bootstrap: `.` 36 spelare, `'` 7, `ı` 2 (Kadıoğlu, Bayındır), `đ` 1.
+     `ı`, `đ` och `ł` translittereras nu, och **punkt blir mellanslag** så
+     "J.Timber" ger `timber` i stället för `jtimber`.
+   - Uppslaget provade bara **sista ordet** i bokens etikett medan FPL-sidan
+     indexeras brett på varje led. Därför föll spelare som kallas vid ett
+     mittenled: "Abdul Fatawu Issahaku" heter Fatawu, "Rayan Vitor Simplicio
+     Rocha" kallas Rayan. Nu provas alla led bakifrån, men vi stannar vid
+     första nyckel som ger träffar och kravet på entydighet står kvar.
 
-   Upptäckt 2026-10-29. `oddsAttackXp` räknar
-   `anytimeProb*goalPts + assistProb*3`, men `assistProb` är **alltid**
-   frånvarande: boken bjuder ingen assistmarknad. Mätt: 0 av 289 spelare har
-   den. Oddsgrenen är alltså mål-bara.
+   Utfall live: omatchade 4 → 2, spelare med odds 290 → 310, tvetydiga 0. De
+   två kvarvarande är **rätt att hoppa över**: "Ephron Mason-Clarke" är en äkta
+   stavningsskillnad mot FPL:s "Mason-Clark" där en gissning vore fel, och
+   "Malik Olayiwola" finns inte i FPL över huvud taget.
 
-   Det vore oskyldigt om det stannade där, men `calibrateAttackScale` är en
-   **global kvot** `sumOdds/sumProxy` som skalar xG-proxyn så att den matchar
-   oddsnivån. Proxyn innehåller assist (`0.6*goalW + 0.4*3`), oddsen inte, så
-   hela xG-modellen skalas ner mot ett tal som saknar assist — och
-   `SEASON.attackScale` används i xG-grenen för **alla** omgångar, inte bara
-   nästa. Gapet propagerar.
-
-   Rätt fix är att jämföra lika med lika: skala mål mot mål och låt assist
-   komma från xA i båda grenarna. Kräver att `attackPer90` plockas isär. Inte
-   gjort, och storleken på felet är ännu inte mätt.
+   Regressionstest i skala: var och en av de 451 spelarna med speltid som
+   etikett i sin egen match ger 451 rätt spelare, noll fel, noll tvetydiga.
+   Kör om teckenmätningen vid säsongsstart — samma teckenklass, nya spelare.
 5. **Solvern: mätt 2026-10-29, strålsökningen är inte värd den.**
    Byggd och jämförd mot baslinjer på 20 riktiga trupper från topp 20 i
    totalligan, horisont 5 omgångar, botens egen modell körd ur `index.html`
