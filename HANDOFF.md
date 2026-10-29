@@ -439,10 +439,25 @@ stället för att tyst flytta en siffra.
 Tvetydiga träffar markeras. Ligan har både João Pedro och Pedro Porro, så
 "Pedro injury latest" visas med texten att det kan vara en annan spelare.
 
-**Inte mätt:** bonusmodellen (`ict_index / 38 × 0.15`, en ren gissning; `bps`
-finns i API:t och är vad FPL faktiskt delar ut efter) och straffläggare
-(`penalties_order` finns och är verifierat). Båda går att mäta mot utfall i
-Facit när fler omgångar passerat. Bygg dem inte på tro innan dess.
+**Bonusmodellen är mätt och utbytt.** Den gamla termen `ict_index / 38 × 0.15`
+delade en kumulativ siffra med hela säsongens längd, som om 38 omgångar redan
+spelats, och 0.15 var en gissning. Mätt mot verkligt utdelad bonus, GW5–GW8,
+837 spelare-omgångar: ny (bps per 90 × skala) RMSE 0.7444 och bias +0.040,
+gammal RMSE 0.7690 och bias −0.201, gissa noll RMSE 0.7912.
+
+Det stora felet var skevheten, inte precisionen. Gamla termen la till 0,73 xP
+för en elva när verklig bonus i snitt var 2,94 poäng. För den här truppen gick
+bidraget från 1,37 till 3,15 xP. Skalan kalibreras vid varje laddning mot
+säsongens faktiska bonusutdelning, som attackScale, och bps per 90 krymps mot
+ligasnittet med samma 270 pseudominuter som anfallssidan (uppmätt optimum).
+
+Begränsning som står i koden: bonus delas ut 3/2/1 till de tre högsta bps i
+varje match, alltså relativt motståndarna. Termen är ett väntevärde ur
+spelarens egen bps-takt och vet inget om vilka han möter.
+
+**Inte mätt:** straffläggare (`penalties_order` finns och är verifierat).
+Går att mäta mot utfall när fler omgångar passerat. Bygg det inte på tro
+innan dess.
 
 ## Nyligen gjort (aug 2026)
 - **`98f73dd` — deployad och verifierad i produktion.** Två buggar:

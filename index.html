@@ -284,7 +284,7 @@ function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
 // Antal spelade omgångar. Sätts när bootstrap laddats. xMins behöver veta hur
 // många chanser en spelare HAFT att spela, annars går andelen inte att räkna.
-const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1, selfCal: {factor:1, gws:0} };
+const SEASON = { gamesPlayed: 0, nextGw: 0, xgc: null, xgcLeague: 1.4, xgiPrior: null, attackScale: 1, bonusScale: 0, bpsLeague: 17, selfCal: {factor:1, gws:0} };
 
 // Lagets insläppta xG per 90, krympt mot ligasnittet efter hur många omgångar
 // som hunnit spelas — samma disciplin som xMins.
@@ -458,6 +458,51 @@ const atkHome = f => f.home ? ATK_HOME_FACTOR : 1/ATK_HOME_FACTOR;
 // Oddsen är marknadspriser och vinner. Skalan mäts om vid varje laddning mot
 // de spelare som har båda, i stället för att spikas som en konstant — då
 // följer den med när underlaget växer.
+// ── Bonuspoäng ──────────────────────────────────────────────────────────────
+//
+// Den gamla termen var `ict_index / 38 * 0.15`. Den delade en KUMULATIV
+// siffra med hela säsongens längd, som om 38 omgångar redan spelats, och
+// 0.15 var en ren gissning.
+//
+// Mätt mot verkligt utdelad bonus, GW5-GW8, 837 spelare-omgångar:
+//
+//   ny (bps per 90 x skala)    RMSE 0.7444   bias +0.040
+//   gammal (ict/38*0.15)       RMSE 0.7690   bias -0.201
+//   gissa noll                 RMSE 0.7912   bias -0.268
+//   snitt bonus hittills       RMSE 0.8151   bias -0.009
+//
+// Det stora felet var inte precisionen utan SKEVHETEN. Gamla termen la till
+// 0,73 xP för en elva när den verkliga bonusen i snitt var 2,94 poäng. Den
+// underskattade alltså med drygt två poäng varje omgång, systematiskt.
+//
+// bps är det FPL faktiskt delar ut bonus efter, så det är rätt storhet att
+// utgå från. Skalan mäts om vid varje laddning i stället för att spikas, på
+// samma sätt som attackScale, så den följer med när säsongen växer.
+//
+// MEDVETEN BEGRÄNSNING: bonus delas ut 3/2/1 till de tre högsta bps i VARJE
+// match, alltså relativt motståndarna. Den här termen är ett väntevärde ur
+// spelarens egen bps-takt och vet inget om vilka han möter. Att modellera
+// fördelningen per match vore rätt, men det är inte gjort, och siffran ska
+// läsas som ett snitt över tid snarare än en prognos för en enskild match.
+function calibrateBonusScale(elements){
+  let bonus=0, bps=0, mins=0;
+  for(const p of elements){
+    if(num(p.minutes) < XGI_PSEUDO_MINUTES) continue;   // för tunt underlag
+    bonus += num(p.bonus); bps += num(p.bps); mins += num(p.minutes);
+  }
+  // Utan underlag finns ingen skala att sätta, och då ska termen vara noll
+  // i stället för en gissning.
+  if(bps<=0 || mins<=0) return {scale:0, league:17};
+  return {scale: bonus/bps, league: bps*90/mins};
+}
+
+// bps per 90, krympt mot ligasnittet med samma pseudominuter som anfallssidan.
+// Utan krympning drar spelare med fa minuter och hog bps-takt upp snittet.
+function bpsPer90(p){
+  const mins=num(p.minutes), bps=num(p.bps), L=SEASON.bpsLeague;
+  return (bps + L*XGI_PSEUDO_MINUTES/90) / ((mins + XGI_PSEUDO_MINUTES)/90);
+}
+
 function calibrateAttackScale(elements,fm){
   let sumOdds=0, sumProxy=0;
   for(const p of elements){
@@ -483,7 +528,7 @@ function estimateXpAt(p,fm,gw,isNextGw){
   if(!fixtures.length) return {xp:0,parts:empty};
 
   const apptPer = mins>=0.6 ? 2 : (mins>0 ? 1 : 0);
-  const bonusPer = num(p.ict_index)/38*0.15;
+  const bonusPer = bpsPer90(p)*SEASON.bonusScale;
   const goalW = {1:6,2:6,3:5,4:4}[type]||4;
 
   let attack=0, csPts=0;
@@ -3341,6 +3386,9 @@ function App(){
         }
         // Skalan mellan odds- och xG-vägen mäts när båda finns. Utan odds
         // finns inget att kalibrera mot och proxyn får stå som den är.
+        const bonusKal = calibrateBonusScale(bs.elements);
+        SEASON.bonusScale = bonusKal.scale;
+        SEASON.bpsLeague  = bonusKal.league;
         SEASON.attackScale = haveOdds ? calibrateAttackScale(bs.elements,fm) : 1;
 
         // Facit för senast spelade omgång.
