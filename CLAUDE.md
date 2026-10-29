@@ -30,6 +30,31 @@ This is the most important rule in this file.
 4. **If you are unsure, say so.** Don't paper over uncertainty. Verify with the
    real API / real data, or with a web search, and cite the source.
 
+## Skriv ner återanvändbara fynd när du gör dem
+
+Allt du mäter eller läser ur en extern källa och som kan behövas igen ska
+dokumenteras **direkt**, i rätt avsnitt i `HANDOFF.md`. Annars görs samma
+arbete om. Det har redan hänt: att gratisplanen inte ger Bet365 lästes ur ett
+felmeddelande, stod ingenstans, och oddsmodellen låg nere i dagar medan vi
+gissade på namnmatchning i stället.
+
+Ett fynd är återanvändbart om det är ett **påstående om världen utanför
+koden**: ett API:s kontrakt, en kvot eller gräns, ett fältnamn, ett
+mätresultat, eller en idé som provades och inte höll. Ett negativt resultat är
+lika värdefullt som ett positivt — det hindrar nästa försök.
+
+Regler:
+- **Datum och metod med varje siffra.** "Median 1,64 gånger över taket, mätt
+  2026-10-29 mot FPL:s xG" är användbart. "Oddsen är uppblåsta" är det inte.
+- **Rätta stale text i samma commit.** En dokumentation som påstår något
+  gammalt är värre än ingen, eftersom den läses som sann. Hittar du en
+  felaktig rad, skriv om den och säg i commit-meddelandet att den var fel.
+- **Commit-meddelandet bär resonemanget**, inte bara diffen: teorin, beviset,
+  och vad som provades och förkastades.
+- **Leta efter gratis diagnostik först** och skriv ned den när du hittar den.
+  `/markets` och `/bookmakers` hos odds-api.io kräver ingen nyckel och kostar
+  ingen kvot. Det tog alldeles för lång tid att upptäcka.
+
 ## Design principles (apply to every change)
 
 - **Don't overengineer.** Simple beats complex.

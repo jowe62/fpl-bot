@@ -7,6 +7,32 @@ Byggd på en egen xP-modell (expected points) plus riktiga bookmaker-odds.
 
 Team-ID: 1036486 (hårdkodat i `TEAM_ID` överst i HTML:en).
 
+## Fynd att återanvända
+
+Allt som uppmäts eller läses ur en extern källa och kan behövas igen skrivs
+ned här eller i rätt fackavsnitt nedan, **direkt när det upptäcks**. Annars
+görs samma arbete om. Det har redan hänt: att gratisplanen inte ger Bet365
+lästes ur ett felmeddelande, stod ingenstans, och oddsmodellen låg nere i
+dagar medan vi gissade på namnmatchning.
+
+Ett fynd är återanvändbart om det är **ett påstående om världen utanför
+koden** — ett API:s kontrakt, en kvot, ett fältnamn, ett mätresultat, eller
+en idé som provades och inte höll. Ett negativt resultat är lika mycket värt
+som ett positivt: det hindrar nästa försök. Skriv alltid med **datum och hur
+det mättes**, så det går att se när siffran blivit gammal.
+
+Gratis felsökning som inte kostar kvot (börja alltid här):
+
+| Vad | Hur | Kostar |
+|---|---|---|
+| Heter marknaden rätt? | `api.odds-api.io/v3/markets?sport=football` | 0, ingen nyckel |
+| Är bokmakaren uppe? | `api.odds-api.io/v3/bookmakers` → `status`/`reason` | 0, ingen nyckel |
+| Finns FPL-fältet? | `fantasy.premierleague.com/api/bootstrap-static/` | 0 |
+| Vad svarade boten sist? | `fpl-bot-lovat.vercel.app/api/odds` vid CDN-träff | 0 uppströms |
+| Funkar ändringen? | stubbad uppström i en lokal harness | 0 |
+
+Se också "Vad som är mätt, och vad som inte är det" samt "Kända fallgropar".
+
 ## Live nu
 - **Bot:** fpl-bot-lovat.vercel.app (Vercel-projekt `fpl-bot`, GitHub-repo jowe62/fpl-bot)
 - **Publik sida:** wennerqvist.design/fpl — en Webflow-sida med en `<iframe>`
@@ -34,12 +60,47 @@ syntes inte ens i Vercels function-loggar). Deploy sker automatiskt vid git-push
   ligger på Production. Använd `vercel env pull .env.local --environment=production`.
 
 ## Odds-pipeline (api/odds.js)
-- Källa: odds-api.io v3. Bas `https://api.odds-api.io/v3`.
-  - `/events?sport=football&league=england-premier-league` → kommande matcher
-  - `/odds?eventId=…&bookmakers=Bet365,Unibet` → marknader per match
-- Bookmakers: gratisnivån ger Bet365 + Unibet, med marknaderna
-  "Anytime Goalscorer", "Clean Sheet Home/Away", "Player To Score or Assist".
-- Cache: 6h in-memory → skonar gratiskvoten (100 req/h).
+
+**Leverantörens plan (mätt och dokumentationsbelagt 2026-10-29).** Det här
+avsnittet påstod tidigare att "gratisnivån ger Bet365 + Unibet". Det var fel,
+och det antagandet höll hela oddsmodellen nere i dagar. Så här är det:
+
+- Gratisplanen ger **100 anrop i timmen, tak 500 per dygn**. Nya gratisnycklar
+  är pausade; den vi har lever vidare.
+- Man **väljer själv** vilka bokmakare som ingår i svaren, och planen bestämmer
+  antalet platser. Gratis ger **två**. Bet365 ligger bakom betalplan, så att be
+  om den gav 403 på *varje* match. Kontot har nu Unibet + William Hill.
+- Att be om en bokmakare kontot inte valt ger 403. Att utelämna parametern helt
+  ger 400 `Missing bookmakers`. Den är obligatorisk.
+
+**Endpoints.** Bas `https://api.odds-api.io/v3`.
+
+| Endpoint | Kostar | Vad |
+|---|---|---|
+| `/events?sport=football&league=england-premier-league` | 1 | kommande matcher |
+| `/odds/multi?eventIds=…&bookmakers=…` | **1 per tio matcher** | marknader |
+| `/markets?sport=football` | **0, ingen nyckel** | marknadskatalogen |
+| `/bookmakers` | **0, ingen nyckel** | namn + `status`/`reason` |
+
+De två sista är gratis och kräver ingen nyckel. **Felsök alltid där först** —
+de svarar på "heter marknaden så här?" och "är boken uppe?" utan att kosta ett
+enda anrop av kvoten.
+
+Använd **aldrig** `/odds?eventId=` i en loop igen. Det var ett anrop per match,
+alltså elva per uppdatering. Under ett avbrott lever ett tomt svar tio minuter,
+vilket gav sex uppdateringar i timmen gånger elva = 66 av 100 enbart på
+omförsök. Boten var sin egen rate limit och fick 429 på samtliga matcher.
+`/odds/multi` tar tio matcher i ETT anrop: en omgång kostar 2, en dubbelomgång
+på 16 matcher kostar 3, värsta fallet under avbrott 12 i timmen.
+
+**Kvoten läses ur svaret.** Varje svar bär `x-ratelimit-limit`,
+`-remaining` och `-reset`. De rapporteras i `coverage.rateLimit`. Utan dem gick
+"slut på kvoten" inte att skilja från "leverantören krånglar" — båda syns bara
+som 429.
+
+**Cache:** 6h vid lyckat svar (in-memory + CDN `s-maxage`). Ett svar där inga
+odds kom igenom cachas bara 10 minuter — ett misslyckande får inte ligga kvar
+som om det vore data, men noll cache gör saken värre under ett avbrott.
 - **Matchurval:** en omgång är precis de matcher som ligger mellan sin egen
   deadline och nästa omgångs deadline. Använd ALDRIG "de N första" igen — det
   antar både datumordning och att en omgång är tio matcher, vilket är fel åt
@@ -71,12 +132,26 @@ långskotten — mätt låg summan 2,7 gånger över taket för alla 20 lag.
 Rör aldrig anytime som rå `1/odds` igen; det snedvrider rankningen mellan
 positioner, vilket är exakt vad Kapten- och Byten-flikarna gör.
 
+**Saknas ankaret slopas spelarna.** Clean sheet-oddsen är det enda ankaret vi
+har, så utan dem går marginalen inte att mäta. Koden lämnade förut
+sannolikheterna råa och "sa det i svaret". Det var en tyst fallback:
+`coverage.uncalibratedTeams` rapporterade saken, men frontend läste aldrig
+fältet och matade in talen i xP ändå. Badgen sa "Odds-modell aktiv, 0/10 lag"
+samtidigt som 289 spelares poäng byggde på odds.
+
+Mätt på det cachade svaret 2026-10-29 mot FPL:s egen xG: summan låg över
+taket för **samtliga 20 lag**, median 1,64 gånger, Tottenham 3,24. Nu slopas
+de berörda spelarna, och boten går på sin egen xG-modell som faktiskt är
+mätt och kalibrerad. Hellre ingen odds än odds vi inte kan de-vigga.
+
 **Returnerar:**
 ```
 { updated,
   byTeam:   { fplTeamId: { csProb } },
   byPlayer: { fplPlayerId: { anytimeProb, assistProb } },
-  coverage: { eventsRequested, eventsFailed, teamsWithOdds, unmappedTeams,
+  coverage: { gameweek, eventsInWindow, eventsRequested, eventsFailed,
+              teamsWithOdds, bookmakers: [], marketsSeen: [],
+              rateLimit: {limit, remaining, reset}, unmappedTeams,
               unmatchedLabels: {count, sample}, ambiguousLabels: {count, sample},
               calibration: {fplTeamId: alpha}, uncalibratedTeams: [] } }
 ```
@@ -494,10 +569,26 @@ bara räknade på odds-delarna förutsade att det skulle göra det; med hela mod
 du påstår något om rankningen.
 
 ## Öppna trådar / TODO
-1. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
+1. **Bjuder våra bokmakare clean sheet alls?** Är 2026-10-29 obesvarad.
+   Det vi vet: marknadsnamnen är rätt (`/markets` bekräftar `Clean Sheet Home`
+   och `Clean Sheet Away`, shape `yesno`, prematch `true`), och både Unibet och
+   William Hill står `active=true status=ok`. Ändå kom noll lag igenom. Svaret
+   står i `coverage.marketsSeen` vid nästa uppdatering.
+
+   Gör de inte det behöver kalibreringen ett annat ankare. Kravet är att
+   marknaden är **tvåsidig**, annars går marginalen inte att normalisera bort.
+   Kandidater ur katalogen, i ordning:
+   - `Team Total Home` / `Team Total Away` — over/under på ett lags mål. Läser
+     lambda direkt och är bättre än clean sheet, som bara ger P(0 mål).
+   - `Correct Score` — hela fördelningen; summera scorelines där laget har 0.
+     Rikast, men `labelled` shape och mest parsning.
+   - `Totals` + `ML` — ger totalen och vem som leder, men inte splitten direkt.
+
+   Bygg inget av det förrän `marketsSeen` visat vad som faktiskt finns.
+2. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
    klart mest arbete: en optimering över budget, formation, fria transfers och
    avdrag över N omgångar. Inte påbörjad.
-2. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
+3. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
    motsatsen — den var fel. `bootstrap.elements` saknar kaptensfält, men varje
    managers lag är publikt: `/leagues-classic/314/standings/` ger topplistan och
    `/entry/{id}/event/{gw}/picks/` ger deras trupp, kapten och chip. Ägande OCH
