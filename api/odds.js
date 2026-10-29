@@ -227,6 +227,54 @@ function calibrationExponent(probs, lambda) {
   return (lo + hi) / 2;
 }
 
+// Poisson: P(X <= k). Samma fordelningsantagande som xP-modellen redan gor
+// pa clean sheet-sidan (exp(-lambda)), alltsa inget nytt antagande.
+function poissonCdf(k, lambda) {
+  let term = Math.exp(-lambda), sum = term;
+  for (let i = 1; i <= k; i++) { term *= lambda / i; sum += term; }
+  return sum;
+}
+
+// Lagets forvantade mal (lambda) ur "Team Total Home"/"Team Total Away".
+//
+// VARFOR DEN MARKNADEN: ankaret var forut clean sheet, ur vilken lambda
+// deriverades som -log(P(0 mal)). Den marknaden finns inte. Matt 2026-10-29
+// via coverage.marketsSeen bjuder Unibet 48 marknader pa PL-matcher och clean
+// sheet ar ingen av dem. Lagtotalen finns, och ar ett BATTRE ankare: den ger
+// hela mallinjen i stallet for bara sannolikheten for noll mal.
+//
+// Marknaden ar tvasidig (over/under pa en linje), sa marginalen gar att
+// normalisera bort rad for rad: P(over) = (1/o_over) / (1/o_over + 1/o_under).
+//
+// Bara HALVLINJER anvands. Pa en heltalslinje (hdp 2) ar exakt tva mal en
+// push, sa over och under summerar inte till ett ens efter de-vigging, och
+// att behandla den som en halvlinje vore ett modellfel.
+//
+// Lambda sokes sa att Poisson-modellen traffar alla linjer sa bra som
+// mojligt. Boken bjuder normalt tva till fyra, och att anvanda allihop ar
+// stabilare an att lita pa en enda. Rutsokning i stallet for binarsokning:
+// felet ar monotont per punkt men summan behover inte vara det, och 600
+// utvarderingar ar gratis.
+function lambdaFromTeamTotal(market) {
+  const punkter = [];
+  for (const rad of market?.odds ?? []) {
+    const hdp = Number(rad.hdp);
+    if (!Number.isFinite(hdp) || Number.isInteger(hdp)) continue;
+    const o = impliedProb(rad.over), u = impliedProb(rad.under);
+    if (!(o > 0 && u > 0)) continue;
+    punkter.push({ k: Math.floor(hdp), p: o / (o + u) });
+  }
+  if (!punkter.length) return null;
+  const fel = lam => punkter.reduce(
+    (a, pt) => a + ((1 - poissonCdf(pt.k, lam)) - pt.p) ** 2, 0);
+  let bast = null, bastFel = Infinity;
+  for (let lam = 0.05; lam <= 6.0001; lam += 0.01) {
+    const f = fel(lam);
+    if (f < bastFel) { bastFel = f; bast = lam; }
+  }
+  return bast;
+}
+
 export default async function handler(req, res) {
   try {
     const key = process.env.ODDS_API_KEY;
@@ -375,6 +423,11 @@ export default async function handler(req, res) {
     // Hamta oddsen i klumpar om tio. Ett fallerat anrop faller nu pa tio
     // matcher i stallet for en, sa var och en av dem rapporteras for sig -
     // en match som tappas ska aldrig forsvinna tyst.
+    // Om lagtotalen FINNS men inget lambda gick att lasa ur den ar det
+    // faltnamnen som inte stammer, inte tackningen. Da sparas ett ratt prov
+    // sa orsaken syns i samma svar, i stallet for att krava en ny deploy for
+    // att overhuvudtaget se hur raderna ser ut. Normalt ar den null.
+    let teamTotalSample = null;
     const oddsPerEvent = new Map();
     for (let i = 0; i < requested.length; i += CHUNK) {
       const klump = requested.slice(i, i + CHUNK);
@@ -421,18 +474,29 @@ export default async function handler(req, res) {
         return null;
       };
 
-      // Clean sheet: "Clean Sheet Home"/"Away" har {yes,no}. Normalisera
-      // bort marginalen: p = (1/oyes) / (1/oyes + 1/ono).
-      const csHome = findMarket("Clean Sheet Home");
-      const csAway = findMarket("Clean Sheet Away");
-      const csProb = m => {
-        const o = m?.odds?.[0];
-        if (!o) return null;
-        const y = impliedProb(o.yes), n = impliedProb(o.no);
-        return y + n > 0 ? y / (y + n) : null;
-      };
-      if (homeFpl && csHome) { const p = csProb(csHome); if (p != null) byTeam[homeFpl] = { csProb: p }; }
-      if (awayFpl && csAway) { const p = csProb(csAway); if (p != null) byTeam[awayFpl] = { csProb: p }; }
+      // Lagens forvantade mal, direkt ur bokens egen lagtotal. Se
+      // lambdaFromTeamTotal ovan for varfor clean sheet-marknaden inte
+      // anvands langre: den finns inte hos bokmakaren.
+      const lamHome = lambdaFromTeamTotal(findMarket("Team Total Home"));
+      const lamAway = lambdaFromTeamTotal(findMarket("Team Total Away"));
+      const lambdaFor = new Map();
+      if (homeFpl) lambdaFor.set(homeFpl, lamHome);
+      if (awayFpl) lambdaFor.set(awayFpl, lamAway);
+
+      if (teamTotalSample === null) {
+        for (const [namn, lam] of [["Team Total Home", lamHome], ["Team Total Away", lamAway]]) {
+          const mk = findMarket(namn);
+          if (mk && lam == null) {
+            teamTotalSample = { market: namn, odds: (mk.odds || []).slice(0, 4) };
+            break;
+          }
+        }
+      }
+
+      // Hallen nolla ar MOTSTANDARENS lambda: laget haller nollan precis nar
+      // motstandaren gor noll mal, alltsa P = e^-lambda(motstandaren).
+      if (awayFpl && lamHome != null) byTeam[awayFpl] = { csProb: Math.exp(-lamHome) };
+      if (homeFpl && lamAway != null) byTeam[homeFpl] = { csProb: Math.exp(-lamAway) };
 
       // Anytime goalscorer: lista av {label, over}. Spelarens lag är antingen
       // hemma eller borta — vi provar båda och matchar på efternamn.
@@ -469,17 +533,16 @@ export default async function handler(req, res) {
         }
       }
 
-      // Kalibrera bort marginalen, lagvis. Lagets förväntade mål kommer ur
-      // MOTSTÅNDARENS clean sheet-odds, som redan är de-viggade:
-      // P(laget gör 0 mål) = e^-lambda.
+      // Kalibrera bort marginalen, lagvis, mot lagets egen forvantade mal.
+      // Forut gick den vagen om motstandarens clean sheet-odds; nu laser vi
+      // lambda direkt ur lagtotalen, vilket ar ett steg kortare och samma tal.
       for (const teamId of fixtureTeams) {
-        const oppId = teamId === homeFpl ? awayFpl : homeFpl;
-        const csOpp = oppId ? byTeam[oppId]?.csProb : null;
+        const lam = lambdaFor.get(teamId);
         const own = [...staged.values()].filter(e => e.team === teamId);
         const anytimes = own.map(e => e.anytimeProb).filter(Boolean);
         if (!anytimes.length) continue;
-        if (csOpp == null) {
-          // Utan clean sheet-ankare gar marginalen inte att mata, och da far
+        if (lam == null) {
+          // Utan lambda-ankare gar marginalen inte att mata, och da far
           // sannolikheterna inte skickas vidare.
           //
           // Forut lamnades de raa "och sades i svaret". Det var en tyst
@@ -499,7 +562,7 @@ export default async function handler(req, res) {
             if (staged.get(pid).team === teamId) staged.delete(pid);
           continue;
         }
-        const alpha = calibrationExponent(anytimes, -Math.log(csOpp));
+        const alpha = calibrationExponent(anytimes, lam);
         calibration[teamId] = Number(alpha.toFixed(3));
         for (const e of own) {
           if (e.anytimeProb) e.anytimeProb = e.anytimeProb ** alpha;
@@ -530,6 +593,7 @@ export default async function handler(req, res) {
         bookmakers: [...bookmakersSedda],
         rateLimit: kvot,
         marketsSeen: [...marknaderSedda].sort(),
+        teamTotalSample,
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
         ambiguousLabels: { count: ambiguous.size, sample: [...ambiguous].slice(0, 25) },
