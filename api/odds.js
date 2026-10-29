@@ -385,11 +385,19 @@ export default async function handler(req, res) {
 
     const byTeam = {};
     const byPlayer = {};
-    const bookmakersSedda = new Set();
-    // Vilka marknader bokmakarna faktiskt bjuder. Utan den har listan gick
-    // det inte att se SKILLNADEN mellan "boken saknar clean sheet" och "boken
-    // kallar den nagot annat an vi slar upp pa" - bada ser ut som noll lag.
-    const marknaderSedda = new Set();
+    // Vilka marknader varje bokmakare faktiskt bjuder. Utan den har listan
+    // gick det inte att se SKILLNADEN mellan "boken saknar clean sheet" och
+    // "boken kallar den nagot annat an vi slar upp pa" - bada ser ut som noll
+    // lag.
+    //
+    // PER BOK, inte sammanslaget. Den forsta versionen slog ihop allt, och da
+    // gick det inte att se om en bok svarat alls eller vad just den bjuder.
+    // Det var precis fragan nar William Hill inte syntes i svaret trots att
+    // den var vald OCH sparad i panelen (2/2 slots, bada grona).
+    //
+    // Nycklarna ar ocksa enda kallan till vilka bokmakare som svarade, sa det
+    // finns bara ett stalle att halla uppdaterat.
+    const marknaderPerBok = new Map();
 
     // 3. Vilka matcher hör till NÄSTA omgång?
     //
@@ -462,9 +470,12 @@ export default async function handler(req, res) {
       // Böckerna ligger under odds.bookmakers.{Bet365|Unibet} som en array
       // av marknader. Vi tar den första bok som har respektive marknad.
       const books = odds.bookmakers || {};
-      for (const namn of Object.keys(books)) bookmakersSedda.add(namn);
       const bookList = Object.values(books);
-      for (const markets of bookList) for (const mk of markets) marknaderSedda.add(mk.name);
+      for (const [namn, markets] of Object.entries(books)) {
+        const set = marknaderPerBok.get(namn) ?? new Set();
+        for (const mk of markets) set.add(mk.name);
+        marknaderPerBok.set(namn, set);
+      }
 
       const findMarket = name => {
         for (const markets of bookList) {
@@ -590,9 +601,10 @@ export default async function handler(req, res) {
         gameweek: nextEvent.id,
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
-        bookmakers: [...bookmakersSedda],
+        bookmakers: [...marknaderPerBok.keys()],
         rateLimit: kvot,
-        marketsSeen: [...marknaderSedda].sort(),
+        marketsSeen: Object.fromEntries(
+          [...marknaderPerBok].map(([bok, m]) => [bok, [...m].sort()])),
         teamTotalSample,
         unmappedTeams: [...unmappedTeams],
         unmatchedLabels: { count: unmatched.size, sample: [...unmatched].slice(0, 25) },
