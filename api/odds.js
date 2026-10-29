@@ -14,17 +14,19 @@
 
 const ODDS_BASE = "https://api.odds-api.io/v3";
 const FPL_BASE = "https://fantasy.premierleague.com/api";
-// INGEN fast bokmakarlista. Koden bad forut om "Bet365,Unibet" och fick
-// 403 pa varje match med texten "Bet365 is only available on our paid
-// plans" — hela oddsmodellen lag nere av en hardkodad parameter.
+// Bokmakare. Parametern ar OBLIGATORISK — utan den svarar API:t
+// "400 Invalid parameters: Missing bookmakers". Det provade jag, och det
+// gick fel: jag tog bort parametern helt och pushade utan att testa.
 //
-// Utan filter levererar leverantoren de bokmakare planen tillater, vilka de
-// nu ar. Marknadsuppslaget nedan tar anda forsta boken som har marknaden, sa
-// koden var redan plan-agnostisk i allt utom sjalva fragan. Det blir ocksa
-// battre av sig sjalvt om planen nagon gang uppgraderas.
+// Sa har fungerar leverantorens plan: man VALJER vilka bokmakare som ska
+// ingå i svaren, och planen bestammer hur manga platser man har. Gratis ger
+// tva platser. Att be om en bokmakare man inte valt ger 403, vilket var det
+// ursprungliga felet: koden bad om "Bet365,Unibet" och Bet365 ligger bakom
+// betalplan, sa VARJE matchanrop nekades och hela oddsmodellen lag nere.
 //
-// Vilka som faktiskt svarade rapporteras i coverage, sa det aldrig ar en
-// gissning vilken kalla ett tal kommer fran.
+// Varde ur miljon sa en andring av valet i panelen inte kraver en kodandring.
+// Standard ar den bokmakare kontot faktiskt har valt.
+const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet";
 const LEAGUE = "england-premier-league";
 const MAX_EVENTS = 20;
 
@@ -329,7 +331,7 @@ export default async function handler(req, res) {
       let odds;
       try {
         odds = await jget(
-          `${ODDS_BASE}/odds?eventId=${ev.id}&apiKey=${key}`
+          `${ODDS_BASE}/odds?eventId=${ev.id}&bookmakers=${encodeURIComponent(BOOKMAKERS)}&apiKey=${key}`
         );
       } catch (e) {
         // Räknas och rapporteras — en match som tappas ska aldrig försvinna tyst.
