@@ -120,14 +120,31 @@ const TEAM_ALIASES = {
 // ── Namnnormalisering ──────────────────────────────────────────────────────
 // Tar bort diakriter (ø→o, é→e, ï→i), gör gemener, trimmar. Används för att
 // jämföra namn mellan böcker och mot FPL trots olika stavning.
+// Tecken som NFD INTE sonderdelar maste translittereras for hand. Annars
+// raderar [^a-z] dem tyst, vilket inte ger ett fel utan ett FELSTAVAT namn som
+// aldrig matchar. Uppmatt 2026-10-29 over hela bootstrap:
+//
+//   .  36 spelare   J.Timber -> "jtimber"   (blir mellanslag, se nedan)
+//   '   7 spelare   O'Shea -> "oshea"       (konsekvent pa bada sidor, ok)
+//   ı   2 spelare   Kadıoğlu -> "kadoglu"    mot bokens "kadioglu"
+//   đ   1 spelare   Đorđe -> "ore"
+//
+// ł finns inte i arets PL men hor till samma klass och kostar ingenting.
+// Kor om matningen vid sasongsstart: samma teckenklass, nya spelare.
 function norm(s) {
   return (s || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // diakriter
     .replace(/ø/gi, "o").replace(/æ/gi, "ae").replace(/å/gi, "a")
     .replace(/ß/gi, "ss")
+    .replace(/ı/g, "i").replace(/İ/g, "i")   // turkiskt punktlost i
+    .replace(/đ/gi, "d").replace(/ł/gi, "l")
+    // Punkt blir MELLANSLAG, inte ingenting: FPL skriver "J.Timber" i
+    // web_name, och "jtimber" matchar aldrig medan "j timber" ger "timber".
+    .replace(/\./g, " ")
     .toLowerCase()
     .replace(/[^a-z\s-]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -369,7 +386,24 @@ export default async function handler(req, res) {
     // hemmalaget först och tog första träffen, vilket skrev bortaspelarens
     // odds på en hemmaspelare med samma efternamn (Callum Wilson → Harry Wilson).
     function matchPlayer(oddsLabel, fplTeamIds) {
-      const [full, tail] = nameKeys(oddsLabel);
+      // Nycklar att prova, i ordning. Sista ordet forst, eftersom efternamnet
+      // oftast star sist. Sedan ovriga led bakifran.
+      //
+      // Forut provades BARA sista ordet (och ledet efter ett bindestreck).
+      // FPL-sidan indexeras brett pa varje led, men etikett-sidan smalt, och
+      // da faller spelare som kallas vid ett mittenled: "Abdul Fatawu
+      // Issahaku" heter Fatawu i FPL, "Rayan Vitor Simplicio Rocha" kallas
+      // Rayan. Uppmatt 2026-10-29: tre av fyra omatchade etiketter hade den
+      // har roten.
+      //
+      // Bredare uppslag gissar inte: vi stannar vid forsta nyckel som ger
+      // traffar, och kravet pa entydighet nedan star kvar.
+      const nycklar = [];
+      const laggTill = (k) => { if (k && !nycklar.includes(k)) nycklar.push(k); };
+      for (const k of nameKeys(oddsLabel)) laggTill(k);
+      const tok = surnameTokens(oddsLabel);
+      for (let i = tok.length - 1; i >= 0; i--) for (const k of nameKeys(tok[i])) laggTill(k);
+
       const collect = (key) => {
         const seen = new Map();
         for (const t of fplTeamIds)
@@ -380,8 +414,8 @@ export default async function handler(req, res) {
       // om ingenting alls träffade — annars gör bokens "Giraud-Hutchinson"
       // etiketten "Gibbs-White" tvetydig mot Ben White i onödan. Vi gissar
       // aldrig mellan kandidater, vi letar bara vidare när listan är tom.
-      let cands = collect(full);
-      if (cands.length === 0 && tail) cands = collect(tail);
+      let cands = [];
+      for (const k of nycklar) { cands = collect(k); if (cands.length) break; }
       if (cands.length === 0) { unmatched.add(oddsLabel); return null; }
       if (cands.length === 1) return cands[0].id;
       // Flera kandidater: förnamnet måste peka ut exakt en. Gör det inte det
