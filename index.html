@@ -2009,6 +2009,12 @@ function TransferPlan({starters,bench,bs,fm,tb,bank,gw,freeTransfers}){
         {" "}Bara GW{gw} vilar på odds. Resten är xG-modellen, som är svårare — läs
         planen som en riktning, inte ett schema.
       </div>
+      <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`,maxWidth:"620px",lineHeight:1.6}}>
+        Siffran på varje rad är vad bytet är värt över de omgångar som återstår
+        då, inte över den enskilda omgången. Därför är raderna högst upp störst,
+        och därför summerar de <em>inte</em> till planens vinst — varje byte
+        förutsätter att de tidigare redan är gjorda.
+      </div>
       {r.plan.length===0
         ? <div style={c.ftBox}>Inget byte höjer summan över de {r.horisont} omgångarna.
             Att spara transfern är rätt drag.</div>
@@ -2019,7 +2025,10 @@ function TransferPlan({starters,bench,bs,fm,tb,bank,gw,freeTransfers}){
               ut <strong>{d.ut.web_name}</strong> ({tb[d.ut.team]?.short_name}),{" "}
               in <strong>{d.inn.web_name}</strong> ({tb[d.inn.team]?.short_name})
             </span>
-            <span style={{color:d.gain>0?T.good:T.mut}}>{d.gain>=0?"+":""}{d.gain} xP</span>
+            <span style={{color:d.gain>0?T.good:T.mut}}>
+              {d.gain>=0?"+":""}{d.gain} xP
+              <span style={{color:T.mut,fontWeight:400}}> GW{d.gw}–{gw+r.horisont-1}</span>
+            </span>
             {d.kostar && <span style={{color:T.warn}}>−4</span>}
             <span style={{color:T.mut,fontSize:"12px"}}>bank £{d.kvar.toFixed(1)}m</span>
           </div>
