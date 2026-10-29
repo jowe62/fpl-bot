@@ -398,12 +398,15 @@ const CS_HOME_FACTOR = 1.10, CS_FDR_TILT = 0.26;
 
 // Clean sheet-sannolikhet för spelarens lag i en given omgång (0..1).
 // Odds används bara för NÄSTA omgång — det är den enda de gäller.
-function cleanSheetProbAt(p,fm,gw,isNextGw){
-  if(isNextGw && ODDS.enabled && ODDS.byTeam[p.team]?.csProb!=null){
-    return ODDS.byTeam[p.team].csProb;
+// Tar MATCHEN, inte omgangen. Forut slog den upp matchen sjalv med .find(),
+// vilket tar den FORSTA - sa vid en dubbelomgang raknades forsta matchens
+// nolla tva ganger, aven i xG-grenen helt utan odds. Anroparen loopar redan
+// over matcherna och vet vilken det galler.
+function cleanSheetProbAt(p,f,isNextGw){
+  if(isNextGw && ODDS.enabled){
+    const o=(ODDS.byTeam[p.team]||[]).find(x=>x.oppId===f.oppId&&x.home===f.home);
+    if(o?.csProb!=null) return o.csProb;
   }
-  const f=(fm[p.team]||[]).find(x=>x.gw===gw);
-  if(!f) return 0;                      // blank omgång: ingen match, ingen nolla
   const base = SEASON.xgc?.[p.team] ?? SEASON.xgcLeague;
   const lambda = base
     * (f.home ? 1/CS_HOME_FACTOR : CS_HOME_FACTOR)
@@ -412,9 +415,11 @@ function cleanSheetProbAt(p,fm,gw,isNextGw){
 }
 
 // Förväntad målpoäng-komponent från odds om tillgängligt.
-function oddsAttackXp(p,mult){
+// Aven den tar MATCHEN. Samma skal: vid dubbelomgang gav den samma matchs
+// odds tva ganger, och oddsen bar bara EN av matcherna.
+function oddsAttackXp(p,f,mult){
   if(!ODDS.enabled) return null;
-  const o = ODDS.byPlayer[p.id];
+  const o = (ODDS.byPlayer[p.id]||[]).find(x=>x.oppId===f.oppId&&x.home===f.home);
   if(!o) return null;
   const goalPts = {1:6,2:6,3:5,4:4}[p.element_type]||4;
   return num(o.anytimeProb)*goalPts + num(o.assistProb)*3*mult;
@@ -506,10 +511,10 @@ function bpsPer90(p){
 function calibrateAttackScale(elements,fm){
   let sumOdds=0, sumProxy=0;
   for(const p of elements){
-    const o = oddsAttackXp(p,1);
-    if(o==null || o<=0) continue;
     const f=(fm[p.team]||[]).find(x=>x.gw===SEASON.nextGw);
     if(!f) continue;
+    const o = oddsAttackXp(p,f,1);
+    if(o==null || o<=0) continue;
     const goalW={1:6,2:6,3:5,4:4}[p.element_type]||4;
     sumOdds += o;
     sumProxy += attackPer90(p)*(0.6*goalW+0.4*3)*atkHome(f);
@@ -533,11 +538,11 @@ function estimateXpAt(p,fm,gw,isNextGw){
 
   let attack=0, csPts=0;
   for(const f of fixtures){
-    const oddsAtt = isNextGw ? oddsAttackXp(p,1) : null;
+    const oddsAtt = isNextGw ? oddsAttackXp(p,f,1) : null;
     attack += oddsAtt!=null
       ? oddsAtt
       : attackPer90(p)*(0.6*goalW+0.4*3)*atkHome(f)*SEASON.attackScale;
-    const cs = cleanSheetProbAt(p,fm,gw,isNextGw);
+    const cs = cleanSheetProbAt(p,f,isNextGw);
     if(type===1||type===2) csPts += cs*4;
     else if(type===3)      csPts += cs*1;
   }
@@ -3674,7 +3679,7 @@ function App(){
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
   // omgången i själva verket körs på xG-proxyn.
   const teamsThisGw = Object.keys(fm).map(Number).filter(tid=>fm[tid][0]?.gw===gw);
-  const teamsNoOdds = teamsThisGw.filter(tid=>!ODDS.byTeam[tid]);
+  const teamsNoOdds = teamsThisGw.filter(tid=>!ODDS.byTeam[tid]?.length);
   const fullCover = oddsStatus==="on" && teamsNoOdds.length===0;
   const oddsLabel = oddsStatus==="on"
     ? `Odds-modell aktiv · ${teamsThisGw.length-teamsNoOdds.length}/${teamsThisGw.length} lag`

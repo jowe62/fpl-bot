@@ -10,7 +10,13 @@
 // Nyckeln ligger ENDAST här på servern, aldrig i frontend.
 //
 // Anropas från artefakten som:  fetch("/api/odds")
-// Svar:  { updated, byTeam: {fplTeamId: {csProb}}, byPlayer: {fplPlayerId: {anytimeProb, assistProb}} }
+// Svar:
+//   { updated,
+//     byTeam:   { fplTeamId:   [{ oppId, home, csProb }] },
+//     byPlayer: { fplPlayerId: [{ oppId, home, anytimeProb, assistProb }] } }
+//
+// EN POST PER MATCH. Vid dubbelomgang har ett lag tva poster, och de ska
+// INTE slas ihop - matcherna kan vara helt olika.
 
 const ODDS_BASE = "https://api.odds-api.io/v3";
 const FPL_BASE = "https://fantasy.premierleague.com/api";
@@ -569,8 +575,21 @@ export default async function handler(req, res) {
 
       // Hallen nolla ar MOTSTANDARENS lambda: laget haller nollan precis nar
       // motstandaren gor noll mal, alltsa P = e^-lambda(motstandaren).
-      if (awayFpl && lamHome != null) byTeam[awayFpl] = { csProb: Math.exp(-lamHome) };
-      if (homeFpl && lamAway != null) byTeam[homeFpl] = { csProb: Math.exp(-lamAway) };
+      //
+      // EN POST PER MATCH, inte per lag. Forut skrevs `byTeam[id] = {...}`,
+      // vilket vid en DUBBELOMGANG lat den sist behandlade matchen skriva over
+      // den forsta - och estimateXpAt loopar over bada matcherna med samma
+      // varde. En dubbel fick alltsa den SENARE matchens odds applicerade tva
+      // ganger, aven om den ena var hemma mot jumbon och den andra borta mot
+      // serieledaren.
+      //
+      // Inte nabart i skrivande stund (noll dubbelomgangar schemalagda i
+      // GW9-38, matt 2026-10-29), men dubblar uppstar nar cupmatcher tvingar
+      // fram ommatchningar, typiskt fran december.
+      if (awayFpl && lamHome != null)
+        (byTeam[awayFpl] ??= []).push({ oppId: homeFpl, home: false, csProb: Math.exp(-lamHome) });
+      if (homeFpl && lamAway != null)
+        (byTeam[homeFpl] ??= []).push({ oppId: awayFpl, home: true, csProb: Math.exp(-lamAway) });
 
       // Anytime goalscorer: lista av {label, over}. Spelarens lag är antingen
       // hemma eller borta — vi provar båda och matchar på efternamn.
@@ -656,10 +675,14 @@ export default async function handler(req, res) {
         }
       }
 
+      // Aven spelarodds ar PER MATCH, av samma skal som ovan.
       for (const [pid, e] of staged) {
-        const t = (byPlayer[pid] ??= {});
-        if (e.anytimeProb) t.anytimeProb = e.anytimeProb;
-        if (e.assistProb) t.assistProb = e.assistProb;
+        const egetLag = playerTeam[pid];
+        const post = { oppId: egetLag === homeFpl ? awayFpl : homeFpl,
+                       home: egetLag === homeFpl };
+        if (e.anytimeProb) post.anytimeProb = e.anytimeProb;
+        if (e.assistProb) post.assistProb = e.assistProb;
+        if (post.anytimeProb || post.assistProb) (byPlayer[pid] ??= []).push(post);
       }
     }
 
@@ -676,6 +699,7 @@ export default async function handler(req, res) {
         gameweek: nextEvent.id,
         eventsInWindow: inWindow.length,
         teamsWithOdds: Object.keys(byTeam).length,
+        fixturesWithOdds: Object.values(byTeam).reduce((n, a) => n + a.length, 0),
         bookmakers: [...marknaderPerBok.keys()],
         bookmakersRequested: BOOKMAKER_PARAM,
         rateLimit: kvot,

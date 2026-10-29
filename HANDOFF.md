@@ -745,12 +745,23 @@ du påstår något om rankningen.
   är pushad finns inte.
 - Kör git- och vercel-kommandon från repo-roten. `vercel link` körd från hemkatalogen
   länkar `~` till projektet i stället för repot.
-- **`byTeam[t].csProb` bär bara EN match.** Vid dubbelomgång spelar laget två
-  gånger men nyckeln skrivs över av den sista matchen, och `estimateXpAt` loopar
-  över båda matcherna med samma odds-csProb. Upptäckt 2026-10-29 i harnessen
-  (lag 2 fick 0,3329 där 0,1653 var rätt). Fanns långt innan dess, inte fixat.
-  Odds gäller bara nästa omgång, så felet slår bara till när nästa omgång är
-  dubbel.
+- **Dubbelomgångar: fixat 2026-10-29.** `byTeam` och `byPlayer` bär nu **en post
+  per match**, inte en per lag/spelare: `[{oppId, home, csProb}]` respektive
+  `[{oppId, home, anytimeProb, assistProb}]`. Förut skrevs posten över av den
+  sist behandlade matchen, och `estimateXpAt` loopade över båda matcherna med
+  samma värde — en dubbel fick alltså den *senare* matchens odds två gånger.
+
+  `cleanSheetProbAt` och `oddsAttackXp` tar nu **matchen**, inte omgången.
+  `cleanSheetProbAt` slog tidigare upp matchen själv med `.find()`, vilket tar
+  den första — så samma bugg fanns i **xG-grenen helt utan odds**.
+
+  Mätt på en konstruerad dubbel (Gabriel, nolla 0,273 och 0,800): csPts blir nu
+  4,29 där de två felaktiga svaren var 2,18 och 6,40, alltså upp till 49 % fel.
+  Regression: alla 669 spelares xP **identiska** till 1e-9 för enkelomgångar.
+
+  Noll dubbelomgångar var schemalagda när detta skrevs (GW9–38, och noll
+  matcher utan omgång), så buggen var inte nåbar än. Dubblar uppstår när
+  cupmatcher tvingar fram ommatchningar, typiskt från december.
 - Skriv aldrig "fixad, ej deployad" i det här dokumentet utan att också säga hur man
   verifierar det. Punkt 1 stod så medan fixen inte fanns i repot alls — den kostade
   en session att upptäcka, för påståendet lät trovärdigt.
