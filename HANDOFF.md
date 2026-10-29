@@ -692,9 +692,34 @@ du påstår något om rankningen.
    Rätt fix är att jämföra lika med lika: skala mål mot mål och låt assist
    komma från xA i båda grenarna. Kräver att `attackPer90` plockas isär. Inte
    gjort, och storleken på felet är ännu inte mätt.
-5. **Solvern.** Flera-omgångars-transferplanering. Största kvarvarande edge och
-   klart mest arbete: en optimering över budget, formation, fria transfers och
-   avdrag över N omgångar. Inte påbörjad.
+5. **Solvern: mätt 2026-10-29, strålsökningen är inte värd den.**
+   Byggd och jämförd mot baslinjer på 20 riktiga trupper från topp 20 i
+   totalligan, horisont 5 omgångar, botens egen modell körd ur `index.html`
+   i en VM (inte en kopia — se `scratchpad/load.mjs`-mönstret).
+
+   | metod | xP över 5 GW | mot "gör inget" |
+   |---|---|---|
+   | gör inget | 205,40 | — |
+   | girig, denna omgång | 216,46 | +11,06 |
+   | girig, horisont | 216,76 | **+11,36** |
+   | strålsökning | 217,60 | +12,20 |
+
+   Strålsökningen vinner i 17 av 20 trupper och förlorar i noll, så den är
+   genuint bättre. Men bara med **+0,84 xP över fem omgångar**, alltså 0,17 per
+   omgång. Den giriga planeraren tar **93 % av hela vinsten**.
+
+   Känslighet: stråle 20→50, par 15→25, kortlista 8→12 flyttade vinsten
+   från 0,37 till 0,56 xP på samma 8 trupper, till **fem gånger** räknetiden
+   (1,9s → 9s per trupp). Inte konvergerad, men avkastningen är usel.
+
+   Avgörande invändningen: strålens försprång sitter i planeringen av **senare**
+   omgångar, och det är precis där modellen är svagast — odds finns bara för
+   nästa omgång. Att leta upp en bättre plan enligt en modell som själv har
+   MAE 2,49 per spelare och omgång är att finslipa under bruset.
+
+   **Slutsats: bygg den giriga horisontplaneraren, inte strålsökningen.**
+   Riggen ligger i scratchpad och är borta vid nästa dag. Mät om innan någon
+   bygger strålsökning ändå.
 6. **Effective ownership GÅR att bygga.** En tidigare anteckning här påstod
    motsatsen — den var fel. `bootstrap.elements` saknar kaptensfält, men varje
    managers lag är publikt: `/leagues-classic/314/standings/` ger topplistan och
