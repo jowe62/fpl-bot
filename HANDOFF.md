@@ -69,7 +69,16 @@ och det antagandet höll hela oddsmodellen nere i dagar. Så här är det:
   är pausade; den vi har lever vidare.
 - Man **väljer själv** vilka bokmakare som ingår i svaren, och planen bestämmer
   antalet platser. Gratis ger **två**. Bet365 ligger bakom betalplan, så att be
-  om den gav 403 på *varje* match. Kontot har nu Unibet + William Hill.
+  om den gav 403 på *varje* match. Kontot har sedan 2026-10-29
+  **Unibet + Paddy Power**.
+- **`ODDS_BOOKMAKERS` MÅSTE följa panelen.** Att be om en bok som inte ligger i
+  en slot ger 403 på HELA anropet, inte bara på den boken. Det har hänt två
+  gånger: först med Bet365, sedan när slotarna byttes till Paddy Power medan
+  koden fortfarande bad om William Hill. Byt alltid båda samtidigt.
+- Slotarna kan bara rensas **en gång per 12 timmar**, och medan de står tomma
+  fyller leverantören dem automatiskt vid nästa `/odds`-anrop. Spara direkt.
+  Miljövariabeln är nödutgången: den styr vad vi *ber om*, slotarna vad kontot
+  *får hämta*, så ett dåligt andraval neutraliseras utan att röra panelen.
 - Att be om en bokmakare kontot inte valt ger 403. Att utelämna parametern helt
   ger 400 `Missing bookmakers`. Den är obligatorisk.
 
@@ -91,9 +100,15 @@ tidigare antog fanns gör det **inte**:
   `Team Total Home` / `Team Total Away`, som finns och är **bättre**: clean
   sheet ger bara P(0 mål), lagtotalen ger hela mållinjen. Se
   "Marginalkalibrering" nedan.
-- **Ingen assistmarknad alls.** `Player To Score or Assist` och
-  `Player To Assist` saknas båda. Mätt: noll av 289 spelare har någonsin fått
-  `assistProb`. Se "Öppna trådar".
+- **Unibet har ingen assistmarknad.** Paddy Power har både `Player To Assist`
+  och `Player To Score or Assist`. Vi läser **`Player To Assist`**, som är
+  direkt P(assist). Den andra är P(mål ELLER assist) och kräver både P(mål)
+  och en antagen korrelation för att bli användbar.
+- **När två böcker har samma marknad tas den med flest selektioner**, aldrig
+  den första i JSON-svaret (`findMarket`). Nyckelordningen är godtycklig:
+  Paddy Power kom först och listade färre målskyttar, vilket tyst tappade 28
+  spelare. Marknaden tas från EN bok, aldrig sammanslagen — böckerna har olika
+  marginal och kalibreringen anpassar en exponent per lag.
 
 Finns: `Anytime Goalscorer`, `To Score 2+/3+ Goals`, `Team Total Home/Away`,
 `Totals`, `ML`, `Correct Score`, `Both Teams To Score`, `Double Chance`,
@@ -602,38 +617,36 @@ bara räknade på odds-delarna förutsade att det skulle göra det; med hela mod
 du påstår något om rankningen.
 
 ## Öppna trådar / TODO
-1. **Bjuder våra bokmakare clean sheet alls?** Är 2026-10-29 obesvarad.
-   Det vi vet: marknadsnamnen är rätt (`/markets` bekräftar `Clean Sheet Home`
-   och `Clean Sheet Away`, shape `yesno`, prematch `true`), och både Unibet och
-   William Hill står `active=true status=ok`. Ändå kom noll lag igenom. Svaret
-   står i `coverage.marketsSeen` vid nästa uppdatering.
+1. **Besvarad 2026-10-29: nej, ingen av böckerna bjuder clean sheet.** Varken
+   Unibets 48 marknader eller Paddy Powers 21 innehåller `Clean Sheet Home` /
+   `Clean Sheet Away`, trots att namnen är exakt rätt enligt `/markets`.
+   **Spelar ingen roll:** ankaret är `Team Total Home`/`Away`, som är bättre
+   — clean sheet ger bara P(0 mål), lagtotalen hela mållinjen. Hållen nolla
+   faller ut som `e^-lambda(motståndaren)`. **Stängd.**
+2. **Löst 2026-10-29: assistgapet.** Stod här som "`attackScale` drar ner
+   hela xG-modellen med 28,6 %". Orsaken var att oddsgrenen var mål-bara
+   medan xG-proxyn innehöll assist, så den globala kvoten `sumOdds/sumProxy`
+   skalade ner allt. Löstes genom att byta andra bokmakarplatsen till Paddy
+   Power, som har `Player To Assist`.
 
-   Gör de inte det behöver kalibreringen ett annat ankare. Kravet är att
-   marknaden är **tvåsidig**, annars går marginalen inte att normalisera bort.
-   Kandidater ur katalogen, i ordning:
-   - `Team Total Home` / `Team Total Away` — over/under på ett lags mål. Läser
-     lambda direkt och är bättre än clean sheet, som bara ger P(0 mål).
-   - `Correct Score` — hela fördelningen; summera scorelines där laget har 0.
-     Rikast, men `labelled` shape och mest parsning.
-   - `Totals` + `ML` — ger totalen och vem som leder, men inte splitten direkt.
+   Mätt före och efter på samma sätt: `attackScale` gick från **0,4920 till
+   0,6527**. Assist står nu för 29,7 % av oddssidan, vilket matchar proxyns
+   egen assistvikt (0,4×3 av 0,6×goalW+1,2, alltså 25–33 % beroende på
+   position). Kvarstående avvikelse mot en lika-mot-lika-skala: **5,3 %**, ner
+   från 28,6 %.
 
-   Bygg inget av det förrän `marketsSeen` visat vad som faktiskt finns.
-2. **William Hill svarar inte, och vi vet nu att det inte ar vart fel.**
-   Mätt 2026-10-29 i tre steg. Boken är vald OCH sparad i panelen (2/2 slots,
-   båda gröna), står `active=true status=ok` i `/bookmakers`, och parametern
-   går ut korrekt (`coverage.bookmakersRequested` = `Unibet,William%20Hill`,
-   efter att vi slutat procentkoda avgränsaren). Ändå är `coverage.bookmakers`
-   bara `["Unibet"]` över samtliga tio matcher.
+   Resten är täckning, inte en bugg: 207 av 303 spelare har assistodds. Att
+   jaga de sista fem procenten i kod vore komplexitet för lite. **Stängd.**
 
-   Teorin att kodningen var orsaken var **fel** — fixen ändrade ingenting.
-   Återstår att boken inte har PL-odds i den här feeden, eller att slotten inte
-   slår igenom på gratisplanen.
-
-   Nästa steg om det blir aktuellt: sätt `ODDS_BOOKMAKERS=William Hill` ensamt i
-   Vercel, ladda en gång, läs `marketsSeen`, återställ. Inget kodbyte behövs —
-   miljövariabeln finns just för det. **Låg prioritet:** Team Total-ankaret ger
-   20/20 lag och 290 spelare med bara Unibet, så en andra bok är redundans.
-3. **Fyra spelare matchas inte, av fyra olika skäl.** Mätt 2026-10-29,
+   Kvarstående antagande: samma `alpha` appliceras på assist som på mål, trots
+   att assistmarknaden bär sin egen marginal. Riktningen är rätt (båda
+   krymps), storleken är en gissning. Inte mätt.
+3. **Avskriven: William Hill.** Boken svarade aldrig trots att den var vald,
+   sparad och `status=ok`, och trots att parametern gick ut korrekt. Orsaken
+   blev aldrig fastställd. Ersättes av Paddy Power, som fungerade direkt.
+   Teorin att procentkodad avgränsare var orsaken var **fel** — fixen var rätt
+   enligt spec men ändrade ingenting.
+4. **Fyra spelare matchas inte, av fyra olika skäl.** Mätt 2026-10-29,
    `coverage.unmatchedLabels`. Alla fyra är PL-spelare med riktig speltid, så
    det är missar och inte korrekta överhopp:
    - **Ferdi Kadioglu** (BHA, 517 min). Rent normaliseringsfel. Turkiskt
@@ -650,7 +663,7 @@ du påstår något om rankningen.
    - **Ephron Mason-Clarke** (COV, 326 min). Äkta stavningsskillnad, FPL har
      "Mason-Clark" utan e. **Ska förbli omatchad** — att gissa här är precis
      den tysta gissning projektet förbjuder.
-4. **Ingen assistmarknad → `attackScale` drar ner hela xG-modellen.**
+
    Upptäckt 2026-10-29. `oddsAttackXp` räknar
    `anytimeProb*goalPts + assistProb*3`, men `assistProb` är **alltid**
    frånvarande: boken bjuder ingen assistmarknad. Mätt: 0 av 289 spelare har
