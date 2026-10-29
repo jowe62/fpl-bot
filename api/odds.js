@@ -24,6 +24,22 @@ const MAX_EVENTS = 20;
 let CACHE = { data: null, ts: 0 };
 const CACHE_MS = 6 * 60 * 60 * 1000; // 6 timmar
 
+// CDN-cache. Minnescachen ovan lever bara sa lange Vercel haller instansen
+// vid liv, och varje kallstart tommer den. En kallstart kostar TOLV anrop
+// uppstroms: bootstrap, events och tio matcher. Utan den har headern
+// cachade CDN:en ingenting (x-vercel-cache: MISS varje gang), sa varje
+// sidladdning riskerade en full omhamtning.
+//
+// Med s-maxage serveras svaret fran kanten i sex timmar utan att funktionen
+// ens kors. stale-while-revalidate later en besokare fa forra svaret direkt
+// medan en uppdatering sker i bakgrunden, i stallet for att vanta.
+//
+// Nyttolasten bar sitt eget "updated"-faltet, sa alderen gar alltid att lasa
+// ur svaret. Ett cachat svar utger sig aldrig for att vara farskare an det ar.
+//
+// Sätts BARA pa lyckade svar. Ett 502 ska inte cachas i sex timmar.
+const CDN_CACHE = "public, s-maxage=21600, stale-while-revalidate=3600";
+
 // ── Odds-API:ts lagnamn → FPL:s team.name ─────────────────────────────────
 // Enbart ÄKTA namnskillnader hör hemma här, dvs där FPL använder en kortform
 // som inte går att härleda ("Tottenham Hotspur" → "Spurs"). FC/AFC-affix
@@ -157,6 +173,7 @@ export default async function handler(req, res) {
     // Servera cache om färsk.
     if (CACHE.data && Date.now() - CACHE.ts < CACHE_MS) {
       res.setHeader("X-Odds-Cache", "hit");
+      res.setHeader("Cache-Control", CDN_CACHE);
       return res.status(200).json(CACHE.data);
     }
 
@@ -410,6 +427,7 @@ export default async function handler(req, res) {
     };
     CACHE = { data: payload, ts: Date.now() };
     res.setHeader("X-Odds-Cache", "miss");
+    res.setHeader("Cache-Control", CDN_CACHE);
     return res.status(200).json(payload);
   } catch (e) {
     // Ingen tyst fallback: säg tydligt att det gick fel, så artefakten

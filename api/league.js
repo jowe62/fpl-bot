@@ -10,6 +10,13 @@
 
 const FPL_BASE = "https://fantasy.premierleague.com/api";
 const CACHE_MS = 30 * 60 * 1000;   // ligan rör sig långsamt; en halvtimme räcker
+
+// CDN-cache. Minnescachen ovan lever bara sa lange Vercel haller instansen
+// vid liv, och varje kallstart tommer den. Ett kallstartsanrop hamtar standings, historik och trupper for sex omgangar.
+// Utan den har headern cachade CDN:en ingenting, sa varje sidladdning
+// riskerade att gora om alltihop — och FPL blockerar moln-IP:n som
+// anropar for ofta. Satt BARA pa lyckade svar.
+const CDN_CACHE = "public, s-maxage=1800, stale-while-revalidate=3600";
 const MAX_MEMBERS = 50;
 // Kaptenshistorik hamtas per medlem OCH omgang. Utan tak blir det medlemmar
 // gånger 38 anrop i maj, sa vi tar bara de senaste omgangarna.
@@ -36,7 +43,8 @@ export default async function handler(req, res) {
     const hit = CACHE.get(id);
     if (hit && Date.now() - hit.ts < CACHE_MS) {
       res.setHeader("X-League-Cache", "hit");
-      return res.status(200).json(hit.data);
+      res.setHeader("Cache-Control", CDN_CACHE);
+    return res.status(200).json(hit.data);
     }
 
     const standings = await jget(`${FPL_BASE}/leagues-classic/${id}/standings/`);
@@ -133,6 +141,7 @@ export default async function handler(req, res) {
 
     CACHE.set(id, { data: payload, ts: Date.now() });
     res.setHeader("X-League-Cache", "miss");
+    res.setHeader("Cache-Control", CDN_CACHE);
     return res.status(200).json(payload);
   } catch (e) {
     return res.status(502).json({ error: String(e.message || e) });

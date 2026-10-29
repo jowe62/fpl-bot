@@ -16,6 +16,13 @@ const OVERALL_LEAGUE = 314;   // "Overall" — alla managers
 const SAMPLE = 50;            // två sidor av standings à 50; en räcker gott
 const CACHE_MS = 6 * 60 * 60 * 1000;
 
+// CDN-cache. Minnescachen ovan lever bara sa lange Vercel haller instansen
+// vid liv, och varje kallstart tommer den. Ett kallstartsanrop hamtar standings plus 50 managers trupp, alltsa over 50 FPL-anrop.
+// Utan den har headern cachade CDN:en ingenting, sa varje sidladdning
+// riskerade att gora om alltihop — och FPL blockerar moln-IP:n som
+// anropar for ofta. Satt BARA pa lyckade svar.
+const CDN_CACHE = "public, s-maxage=21600, stale-while-revalidate=3600";
+
 const FPL_HEADERS = {
   "User-Agent": "Mozilla/5.0",
   Referer: "https://fantasy.premierleague.com/",
@@ -39,7 +46,8 @@ export default async function handler(req, res) {
 
     if (CACHE.data && CACHE.gw === gw && Date.now() - CACHE.ts < CACHE_MS) {
       res.setHeader("X-Elite-Cache", "hit");
-      return res.status(200).json(CACHE.data);
+      res.setHeader("Cache-Control", CDN_CACHE);
+    return res.status(200).json(CACHE.data);
     }
 
     const standings = await jget(
@@ -94,6 +102,7 @@ export default async function handler(req, res) {
 
     CACHE = { data: payload, ts: Date.now(), gw };
     res.setHeader("X-Elite-Cache", "miss");
+    res.setHeader("Cache-Control", CDN_CACHE);
     return res.status(200).json(payload);
   } catch (e) {
     // Ingen tyst fallback: säg att det gick fel så UI:t kan låta bli att visa
