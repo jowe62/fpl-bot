@@ -33,7 +33,12 @@ const FPL_BASE = "https://fantasy.premierleague.com/api";
 // Tva bokmakare ger battre tackning utan att kosta fler anrop: uppslaget
 // nedan tar forsta boken som har marknaden, sa saknas malskytt hos den ena
 // fylls luckan av den andra.
-const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet,William Hill";
+// MASTE matcha de bokmakare kontot har VALT i panelen. Att be om en bok som
+// inte ligger i en slot ger 403 pa HELA anropet, inte bara pa den boken, sa
+// listan far aldrig halka efter panelen. Det har hant tva ganger nu: forst
+// med Bet365 (betalplan), sedan 2026-10-29 nar slotarna byttes till
+// Unibet + Paddy Power medan koden fortfarande bad om William Hill.
+const BOOKMAKERS = process.env.ODDS_BOOKMAKERS || "Unibet,Paddy Power";
 // Kommat ar LISTANS avgransare och ska vara literalt i URL:en. Bara
 // innehallet i varje namn kodas, dar mellanslaget i "William Hill" blir %20.
 //
