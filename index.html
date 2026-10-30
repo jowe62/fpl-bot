@@ -353,6 +353,22 @@ function deadlineStamp(ms){
       {weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   }catch{ return ""; }
 }
+// Uppräkning i en MENING. Svenska har inget oxfordkomma: komma mellan alla
+// utom de två sista, och "och" före det sista.
+//
+// `join(" och ")` gav "Kinsky och Guéhi och N.Williams" sa fort tre spelare
+// byttes in - reproducerat i webblasaren 2026-10-30. `join(", ")` gav i
+// stallet "Kinsky, Shaw, Janelt, Szoboszlai." mitt i en mening. Bada ar fel,
+// at var sitt hall.
+//
+// GALLER MENINGAR, inte datalistor. Rader som "GW9 ARS · GW10 HUL" eller
+// "Utan odds, körs på xG: BHA, FUL" ar uppstallningar och ska fortsatta
+// anvanda sin egen avskiljare.
+function lista(arr){
+  if(!arr || !arr.length) return "";
+  if(arr.length===1) return String(arr[0]);
+  return arr.slice(0,-1).join(", ") + " och " + arr[arr.length-1];
+}
 function pdiffStr(a,b){const d=((a-b)/10).toFixed(1);return d>0?`+£${d}m`:d<0?`-£${Math.abs(d)}m`:"Samma pris";}
 function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
@@ -948,7 +964,7 @@ function buildTakeaways(r){
       + ` — netto ${tv.net>=0?"+":""}${tv.net} poäng${tv.cost?` efter avdrag −${tv.cost}`:""}.`);
   }
   if(r.blanked.length)
-    bad.push(`${r.blanked.map(p=>p.web_name).join(", ")} spelade inte en minut.`);
+    bad.push(`${lista(r.blanked.map(p=>p.web_name))} spelade inte en minut.`);
 
   // Att tanka pa — monster som haller i sig, inte enstaka utfall.
   const deadBench=r.benchNames.filter(b=>b.pts===0).length;
@@ -1435,7 +1451,7 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
       headline:`Ger ${now.bb.toFixed(1)} xP den här omgången`,
       detail:line("bb","xP"),
       notes:[
-        `Bänken består av ${bench.map(p=>p.web_name).join(", ")}.`,
+        `Bänken består av ${lista(bench.map(p=>p.web_name))}.`,
         `Talet är vad chipet ger UTÖVER auto-bytena. Uteblir någon i elvan kommer` +
         ` en bänkspelare in ändå, och den poängen får du utan att spela chipet.`,
         myDGW.length?`${myDGW.length} av dina spelare har dubbel match den här omgången.`:null,
@@ -2519,13 +2535,13 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
           <div className="lead" style={c.weekLead}>
             {bringIn.length===0
               ? <>Din elva är redan den bästa</>
-              : <>Byt in {bringIn.map(p=>p.web_name).join(" och ")}</>}
+              : <>Byt in {lista(bringIn.map(p=>p.web_name))}</>}
           </div>
           <div style={c.weekSub}>
             Formation {xi.formation} · {xi.total.toFixed(1)} xP totalt.
             {bringIn.length===0
               ? <> Ingen annan laglig uppställning av din trupp ger mer.</>
-              : <> Bänka {dropOut.map(p=>p.web_name).join(" och ")}.</>}
+              : <> Bänka {lista(dropOut.map(p=>p.web_name))}.</>}
           </div>
           {bringIn.map((p,i)=>(
             <div key={p.id} style={{...c.weekFlag(),marginTop:i===0?`${SP[4]}px`:0}}>
