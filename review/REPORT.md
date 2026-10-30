@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`), **B11** (`eb1d11a`), **B12** (`00be5a2`) |
-| **Kvar** | B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`), **B11** (`eb1d11a`), **B12** (`00be5a2`), **B14** |
+| **Kvar** | B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
@@ -92,7 +92,7 @@ Fragmentet når aldrig en server.
 | ~~B11~~ | Modell | ~~Låg~~ **KLAR** `eb1d11a` | Triple Captain uteslöt målvakter ur kaptensvalet. **Och filtret satt på tre ställen, inte ett — medan ett fjärde redan saknade det.** | Regeln verifierad mot premierleague.com: *"You must also choose a captain and a vice-captain from the players in your line-up"* — ingen positionsbegränsning. `bootstrap.game_settings` bär **inget** kaptensfält alls, så det gick inte att läsa ur API:t; antagandet var alltså oundvikligt att upptäcka, men inte att behålla. `planGwVarde` anropade redan `armband(xi.xi, …)` **utan** filter, så modellen svarade olika beroende på vilken vy som frågade. | Ta bort filtret på alla tre ställena. | **Ja**, mätt på 50 riktiga trupper |
 | ~~B12~~ | UX | ~~Låg~~ **KLAR** `00be5a2` | Chips-fliken visar ett värde för ett chip som är förbrukat. | Reproducerat i UI:t: Triple Captain visade **"SLUT · använt i GW3"** och direkt under **"Ger 5.2 xP extra den här omgången"** plus raden om vilken av de fem kommande omgångarna som vore bäst — råd om ett drag som inte finns. `chipAvailability` bekräftar mot live-data: `tc available=false, usedAt=3`. **Samma kort hade ett andra fel:** etiketten var hårdkodad "SLUT" för *all* otillgänglighet. I GW1 ligger både wildcard och Free Hit utanför sina fönster (båda börjar GW2) — då hade kortet påstått att de var förbrukade innan säsongen börjat. | Rendera varken värde eller jämförelse när chipet inte går att spela, och skilj "SLUT" från "STÄNGT". | **Ja**, båda lägena körda i webbläsaren |
 | ~~B13~~ | UX | ~~Låg~~ **KLAR** `9baf325` | Ranken läses som tre separata nyckeltal. | Uppmätt i DOM:en med `Range.getBoundingClientRect`, tecken för tecken: IBM Plex Mono är monospace, så **varje** glyf vid 40 px är 23,20 px bred — inklusive U+00A0. Avståndet mellan två **skilda** nyckeltal är 24 px. **Skillnad 0,79 px.** Rapportens korrigering stämde: talet radbryter inte, separatorerna är hårda mellanslag (teckenkod 160 avläst). Samma mätning visade att **`23t 3m`, nyckeltalet från B6, hade exakt samma fel** (23,21 px). | U+2009 i stället för U+00A0 i båda. | **Ja**, mätt före och efter, desktop och mobil |
-| **B14** | Kod | Låg | "av fyra bänkspelare" är hårdkodat. | `index.html:875`. Bänken är alltid fyra i FPL, så det stämmer idag. Det är en konstant som borde vara `r.benchNames.length`. | Härled talet. | **Ja**, läst |
+| ~~B14~~ | Kod | ~~Låg~~ **KLAR** | "av fyra bänkspelare" är hårdkodat. **Och det fanns ett till: "av dina 11" i template-raden.** | Meningen räknar själv ur `r.benchNames` och sätter sedan "fyra" som text — två källor för samma tal, där den ena tyst slutar stämma om FPL ändrar sig. Samma sak på Veckan: `overlap` räknas ur `starters` men nämnaren stod som "11". Filen har redan `squadRules(bs)` som läser `squad_squadsize` ur bootstrap och kastar om den saknas, och HANDOFF säger uttryckligen "lägg inte tillbaka någon av dem som konstant". | `r.benchNames.length` respektive `starters.length`. | **Ja**, kört med 3, 4 och 6 på bänken |
 | **B15** | Säkerhet | Låg | Felsvar från `/api/fpl` saknar CORS-header och läcker intern feltext. | `api/fpl.js:8` returnerar fel utan `ACAO`, rad 14 returnerar `e.message` rakt ut. | Sätt headern innan felsvaren och logga detaljen i stället för att returnera den. | **Ja**, läst |
 
 ---
@@ -108,7 +108,7 @@ Fragmentet når aldrig en server.
 | Chips | Vad varje chip är värt | **Ja**, efter **B1**, **B3** och **B12**. Förbrukade och stängda chip visar inget värde |
 | Ligan | Serietabell räknad ur matchresultat | **Ja, exakt.** Oberoende uträknad: MCI 8-7-0-1, 20-9, 21 p. Botens påstående att FPL:s egen tabelldata är tom är verifierat: `played/win/draw/loss/points` är noll för alla 20 lag |
 | Eliten | Effektivt ägande ur topp 50 | Formeln håller: Haaland 174 % = ägande plus kaptensandel, vilket är rätt definition |
-| Facit | Jämför prognos mot utfall | Ja. Baslinjen finns med, vilket är rätt. Hårdkodad bänkstorlek (**B14**) |
+| Facit | Jämför prognos mot utfall | **Ja**. Baslinjen finns med, vilket är rätt, och bänkstorleken härleds sedan **B14** |
 | Analys | Poänguppdelning och xP-kurvor | Ja |
 | Skador | Flaggade spelare | **Rättad observation:** fliken var inte tom. Raderna renderades med `T.ink` på en opak nästan-vit platta — 1,03:1, alltså osynliga (**B5**). Nu läsbara: tre skadade visas. Att Veckan har en egen nyhetspanel står kvar — två ställen för samma sak |
 
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B13
+## Vad som gjordes med B1–B14
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -409,6 +409,29 @@ Båda lägena körda i webbläsaren:
 | WC utanför fönster | **SLUT** · utanför chipfönstret · förklaring | **STÄNGT** · utanför chipfönstret |
 
 De tre spelbara korten är oförändrade, verifierat i samma körning.
+
+**B14.** Två tal, inte ett. Facit sa "av fyra bänkspelare" och Veckan "av
+dina 11" — båda i meningar som räknar täljaren ur datan men hade nämnaren
+som text.
+
+Att talen är härledda och inte råkar bli rätt är prövat genom att köra
+`buildTakeaways` med olika bänkstorlek:
+
+| bänk | före | efter |
+|---|---|---|
+| 4, tre nollor | 3 av **fyra** | 3 av **4** |
+| 3, två nollor | 2 av **fyra** ← fel | 2 av **3** |
+| 6, fem nollor | 5 av **fyra** ← fel | 5 av **6** |
+
+I appen är siffrorna oförändrade — "3 av 4 bänkspelare gav noll" och "6 av
+dina 11" — vilket är poängen: beteendet är detsamma, antagandet borta.
+
+**Kvar, inte åtgärdat:** `validateLiveSquad` kastar på `d.picks.length!==15`
+med texten "förväntade 15 spelare". Det är samma klass av konstant, men till
+skillnad från de två ovan är det en **validering** — går den fel laddas ingen
+trupp alls. `squadRules(bs)` har redan `squad_squadsize`, så den går att
+härleda, men funktionen får inte `bs` idag. Värt en egen ändring, inte en
+gratis följd av den här.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade

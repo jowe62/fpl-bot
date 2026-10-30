@@ -980,7 +980,11 @@ function buildTakeaways(r){
   // Att tanka pa — monster som haller i sig, inte enstaka utfall.
   const deadBench=r.benchNames.filter(b=>b.pts===0).length;
   if(deadBench>=2)
-    watch.push(`${deadBench} av fyra bänkspelare gav noll. En tunn bänk kostar först när någon i elvan uteblir, men då kostar den mycket.`);
+    // Harlett ur datan, inte hardkodat. Banken ar fyra i FPL idag, men
+    // "fyra" i en mening som ocksa raknar ur `benchNames` ar tva kallor for
+    // samma tal - och den ena slutar tyst stamma den dag FPL andrar sig.
+    // Samma linje som squadRules redan haller for formation och klubbgrans.
+    watch.push(`${deadBench} av ${r.benchNames.length} bänkspelare gav noll. En tunn bänk kostar först när någon i elvan uteblir, men då kostar den mycket.`);
   if(r.accuracy){
     const m=r.accuracy.mae, b=r.accuracy.base;
     watch.push(m<b
@@ -2719,7 +2723,10 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
             så den ska stå här varje vecka — inte bara när elvan redan brinner. */}
         <div style={c.weekFlag()}>
           <span style={c.weekDot(T.line)}/>
-          <span style={c.weekMuted}>{overlap} av dina 11 finns i template-elvan — den elva flest managers äger.
+          {/* starters.length, inte 11 - samma skal som banktalet i Facit.
+              `overlap` raknas ur just den har listan, sa talet ska komma
+              darifran ocksa. */}
+          <span style={c.weekMuted}>{overlap} av dina {starters.length} finns i template-elvan — den elva flest managers äger.
             {overlap>=8
               ? <> Du rör dig i stort sett med fältet: låg risk att rasa, men också få tillfällen att klättra.</>
               : overlap>=5

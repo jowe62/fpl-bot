@@ -378,7 +378,21 @@ elvan.
   som går ut frigör sin klubbplats, så byten inom samma klubb är lagliga.
 - **Chipfönster:** `bootstrap.chips`.
 
+- **Truppstorlek:** `game_settings.squad_squadsize` (15) och
+  `squad_squadplay` (11); bänken är skillnaden. Läses via `squadRules(bs)`,
+  som kastar om fälten saknas.
+
 Lägg inte tillbaka någon av dem som konstant.
+
+**Det gäller löpande text också.** Fram till 2026-10-30 stod "av fyra
+bänkspelare" i Facit och "av dina 11" på Veckan — meningar som räknade
+täljaren ur datan men hade nämnaren som text. Står talet redan i en array,
+använd `array.length`: det beskriver vad som faktiskt hände i den omgången,
+inte vad reglerna säger i allmänhet.
+
+Kvar: `validateLiveSquad` kastar på `d.picks.length!==15`. Samma klass, men
+det är en validering — går den fel laddas ingen trupp alls — och funktionen
+får inte `bs` idag. Ändra den för sig, inte på köpet.
 
 ## Flikar i boten
 **Veckan** (default), Kapten, Byten, Fixtures, Chips, **Analys**, Skador — i den
