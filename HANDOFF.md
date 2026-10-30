@@ -31,6 +31,52 @@ Gratis felsökning som inte kostar kvot (börja alltid här):
 | Vad svarade boten sist? | `fpl-bot-lovat.vercel.app/api/odds` vid CDN-träff | 0 uppströms |
 | Funkar ändringen? | stubbad uppström i en lokal harness | 0 |
 
+### Kör botens egen modell utanför webbläsaren
+
+**Det finns inget byggsteg, ingen typkontroll och ingen lint.** Ingen
+`package.json`, ingen `tsconfig`, ingen eslint. Hela klassen av fel som en
+typkontroll fångar syns bara när koden körs. Det enda som går att köra:
+
+| Kontroll | Kommando |
+|---|---|
+| JSX kompilerar | transpilera babel-blocket med riktig `@babel/standalone` |
+| API-syntax | `node --check api/*.js` |
+| Grounding | `node eval/grounding.test.mjs` |
+
+Allt annat måste verifieras genom att **köra modellen**. Och då ska man köra
+*botens* modell, inte en kopia av den — en kopia driver isar från koden direkt,
+och då mäter man på fel sak.
+
+Så här gör man (mönstret låg i `scratchpad/load.mjs`, och **scratchpad töms
+mellan dagar** så det måste byggas om):
+
+1. Läs ut `<script type="text/babel">...</script>` ur `index.html`.
+2. Transpilera med `@babel/standalone` (`presets:["react"]`). Hämta den från
+   cdn till en lokal fil en gång.
+3. Kör resultatet i en `node:vm`-context med stubbade `React`, `ReactDOM`,
+   `document`, `localStorage`, `location` och `fetch`. Funktionsdeklarationer
+   hamnar då på context-objektet och går att anropa direkt.
+4. `const` hamnar **inte** där — react-presetet rör inte deklarationstypen.
+   Lägg till en epilog som exporterar dem:
+   `;globalThis.__exp={SEASON, ODDS, T, c, SP, ...};`
+   Låt en saknad nyckel braka högt i stället för att bli tyst `undefined`.
+5. Sätt upp världen i samma ordning som `App` gör: `SEASON.gamesPlayed`,
+   `buildTeamXgc`, `buildXgiPrior`, `nextGw`, fixture-kartan `fm`,
+   `ODDS.byTeam`/`byPlayer`, sedan `calibrateBonusScale` och
+   `calibrateAttackScale`.
+6. **Validera riggen mot verkligheten innan du mäter något med den.** Jämför ett
+   tal mot vad den levande boten visar. Riggen gav Haaland 4,89 xP och boten
+   visade 4,9 — först då var den användbar.
+
+Komponenter går att rendera rakt av: `ctx.CaptainTab({...props})` kör hela
+kroppen inklusive JSX, så ett renderingsfel syns lokalt i stället för hos
+användaren. `useMemo` i stubben ska vara `f=>f()`.
+
+Fallgrop som kostade tid: `xMins` kan **aldrig** returnera 1,0. Den krymper mot
+0,5 med två pseudo-omgångar, så taket efter åtta omgångar är 0,90. Ett test som
+antar full speltid genom att sätta `minutes` högt misslyckas av fel skäl —
+stubba `ctx.xMins` i stället när du vill prova ytterlägen.
+
 Se också "Vad som är mätt, och vad som inte är det" samt "Kända fallgropar".
 
 ## Live nu
