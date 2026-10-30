@@ -3775,6 +3775,20 @@ function App(){
     return ()=>window.removeEventListener("hashchange",onHash);
   },[]);
 
+  // `[]` och inget annat. Utan beroendelista kordes blocket vid VARJE
+  // omrendering: observern revs och byggdes om, och tva overflodiga
+  // hojdmeddelanden gick till foraldern med oforandrad hojd.
+  //
+  // Uppmatt 2026-10-30 i en riktig iframe med en raknare runt
+  // ResizeObserver: fem flikbyten gav fyra nya observers, och - varre - 60
+  // sekunders HELT STILLASTAENDE sida gav tva till. Det senare ar nytt sedan
+  // B6 (790692f): nedrakningens tick pa 30 s renderar om App, sa churnen
+  // slutade bero pa att nagon klickar. Omraknat blir det ~2 880 rivna
+  // observers per dygn pa en orord flik.
+  //
+  // Blocket stanger inte om nagon state eller prop - bara `window.parent`,
+  // `document.documentElement` och `postMessage` - sa en tom lista kan inte
+  // ge en inaktuell closure. Observern ska skapas en gang.
   useEffect(()=>{
     if(window.parent===window) return;
     const post=()=>window.parent.postMessage(
@@ -3783,7 +3797,7 @@ function App(){
     const ro=new ResizeObserver(post);
     ro.observe(document.documentElement);
     return ()=>ro.disconnect();
-  });
+  },[]);
 
   useEffect(()=>{
     const id=setInterval(()=>setNu(Date.now()),30000);

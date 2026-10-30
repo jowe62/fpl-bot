@@ -535,6 +535,39 @@ vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
 5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
    chances" ur guidens exempel finns inte i API:t.
 
+## Iframe-höjden — och hur man mäter den
+
+Boten ligger i en `<iframe>` på wennerqvist.design och rapporterar sin egen
+höjd till föräldern med `postMessage({type:"glennos:height"})`. En
+`ResizeObserver` på `document.documentElement` driver det.
+
+**Effekten går inte att mäta när boten är öppen direkt.** Första raden är
+`if(window.parent===window) return;`, så på toppnivå skapas ingen observer
+alls. Mätning kräver en föräldersida med en iframe. Gör den
+**samma origin** som boten (servera den från samma port på en egen sökväg),
+annars når du inte `iframe.contentWindow` från föräldern.
+
+Räkna observers genom att linda konstruktorn i sidan innan babel-blocket:
+
+```js
+const R=window.ResizeObserver; window.__ro={skapade:0,rivna:0};
+window.ResizeObserver=function(cb){ window.__ro.skapade++;
+  const o=new R(cb); const d=o.disconnect.bind(o);
+  o.disconnect=function(){ window.__ro.rivna++; return d(); }; return o; };
+```
+
+**Fallgrop i mätningen:** när föräldern satt iframens höjd till innehållets
+höjd slutar `scrollHeight` ändra sig, så flikbyten ger inga nya meddelanden
+även om allt fungerar. Det är en stabil jämvikt, inte ett fel. Vill du prova
+att observern lever: krymp iframen från föräldern så svämmar innehållet över
+och höjden växer igen.
+
+**`useEffect` utan beroendelista körs vid varje omrendering.** Här rev det upp
+observern varje gång. Sedan nedräkningen (`790692f`) renderar om `App` var
+30:e sekund gällde det även en helt orörd flik — ~2 880 rivna observers per
+dygn. Åtgärdat med `},[])`; blocket stänger inte om någon state, så listan är
+säker.
+
 ## Deadline
 
 `bootstrap.events[]` bär **tre** deadlinefält: `deadline_time` (ISO-sträng,

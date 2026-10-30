@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`) |
-| **Kvar** | B7, B8, B9, B10, B11, B12, B13, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** |
+| **Kvar** | B8, B9, B10, B11, B12, B13, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
 Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2,
-B3, B4, B5 och B6 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
+B3–B7 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
 det var sant när rapporten skrevs och fel därefter.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
@@ -85,7 +85,7 @@ Fragmentet når aldrig en server.
 | ~~B4~~ | Bugg / tillstånd | ~~Medel~~ **KLAR** `fb61d56` | Ett kast ur `buildRecs` hanterades inte. **Rapporten hittade ett av tre anropsställen, och inte det värsta: ett kast i `WeekTab` tar hela appen med sig — vit sida.** | Kört i webbläsaren mot en lokal kopia med ett injicerat kast i `buildRecs`. (a) `WeekTab:2214`, `useMemo` mitt i renderingen utan `try/catch` → **tom sida**, hela boten, felet bara i konsolen. (b) `App.runTransfers:3816`, `setAnalyzing(false)` efter anropet → knappen fast på "Analyserar..." med `disabled:true`, verifierat i DOM:en, kvar tills sidan laddas om. (c) `TransferPlan:2161` hade redan `try/catch` — mönstret var alltså inkonsekvent på tre ställen i samma fil. **Det går inte att utlösa idag:** grinden `harSaljpriser([...starters,...bench])` är exakt samma predikat som kastet på rad 1653, så säljpris-kastet är onåbart. Happy path verifierad: tre kort renderas, konsolen ren. | `try/catch` på alla tre ställena, `setAnalyzing(false)` i `finally`, och felet visas i UI:t. | **Ja**, kört i webbläsaren, före och efter |
 | ~~B5~~ | Tillgänglighet | ~~Medel~~ **KLAR** `ceb996b` | `T.dim` och `T.disabled` klarar inte WCAG AA. **Mätningen hittade fyra fel till som rapporten missade — ett av dem allvarligt: skadekorten är vit text på vit platta.** | Mätt i DOM:en, alla tio flikar och båda lagen: varje textnod, dess verkliga bakgrund (alfa-komposterad uppåt), storlek och vikt, mot AA-tröskeln. **102 fall på Veckan ensam.** Rapportens siffror stämde exakt (dim 3,79:1 mot card, 4,33:1 mot bg; disabled 2,39:1). Nytt: (a) `InjuryTab` sätter en **opak** `#FAEFEC` som bakgrund i en mörk app — namnet låg på **1,03:1**, i praktiken osynligt; (b) `dim` på fixturebrickornas färgtoner, 2,81:1 vid 8,5 px i `pFxOpp` och 3,93:1 i `FixtureTicker` — filens värsta värden; (c) `POS_TINT[4]` (ANF) 4,44:1 vid 9 px. Rapportens egen fix `#7C8694` hade **inte räckt**: 4,23:1 mot `overlay`. | `dim`→`#818B98`, `disabled`→`#778396`, `dim`→`mut` på de två tonade brickorna, ANF→`#FF5C9A`, och `#FAEFEC`→ny `T.badBg`. | **Ja**, mätt i webbläsaren före och efter |
 | ~~B6~~ | UX | ~~Medel~~ **KLAR** `790692f` | Deadline visades aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**; fältet läses bara i `api/odds.js`. Bekräftat mot **live** bootstrap 2026-10-30: `deadline_time_epoch` 1793444400 = `deadline_time` 2026-10-31T11:00:00Z, alltså GW9-deadline kl 12:00 svensk tid — 23½ timme bort och ingenstans i gränssnittet. | Nedräkning som nyckeltal intill NÄSTA OMGÅNG, plus den absoluta tidpunkten i huvudraden. | **Ja**, kört i webbläsaren: alla tre lägen plus tickandet |
-| **B7** | Kod | Medel | `useEffect` för iframe-höjd saknar beroendelista och river upp en `ResizeObserver` vid varje omrendering. | `index.html:3562-3570`, blocket slutar på `});` och inte `},[]);`. De fem andra `useEffect` i filen har alla `[]`. Just den här komponenten har orsakat en höjdåterkopplingsloop i iframen tidigare. | `},[])`. Observern behöver bara skapas en gång. | **Ja**, läst |
+| ~~B7~~ | Kod | ~~Medel~~ **KLAR** | `useEffect` för iframe-höjd saknade beroendelista och rev upp en `ResizeObserver` vid varje omrendering. **B6 gjorde den värre: churnen slutade bero på att någon klickar.** | Mätt i en **riktig iframe** (effekten returnerar tidigt på toppnivå, så den går inte att mäta där) med en räknare runt `ResizeObserver`. Före: fem flikbyten → **4 nya observers**, och 60 sekunders helt stillastående sida → **2 till**, alltså ~2 880 rivna observers per dygn på en orörd flik sedan `790692f`. Varje cykel skickade dessutom två hojdmeddelanden med **oförändrad** höjd. | `},[])`. Blocket stänger inte om någon state eller prop, så listan kan inte ge en inaktuell closure. | **Ja**, mätt i iframe före och efter |
 | **B8** | Säkerhet | Medel | `/api/fpl` är en öppen proxy som vem som helst kan använda. | `api/fpl.js:3` sätter ihop `path` från query utan validering, och rad 10 sätter `Access-Control-Allow-Origin: *`. Värden är hårdkodad i strängen, så det går **inte** att nå en annan domän — men vem som helst kan använda kontots Vercel-funktion som gratis FPL-proxy. | Tillåt bara en lista av kända sökvägsmönster, och begränsa `ACAO` till den egna domänen. | **Ja**, läst. Att värden inte går att byta är verifierat genom att basen är en literal |
 | **B9** | Kod | Låg | Död kod. | `PlayerChip` definieras på rad 1775 och förekommer ingen annanstans. `POS_SV` definieras på rad 194 och används aldrig. Båda verifierade med ordgräns-grep över hela filen. | Ta bort. | **Ja**, grep |
 | **B10** | UX / språk | Låg | Uppräkningar blir "A och B och C" i stället för "A, B och C". | `index.html:2307` och `2313`: `.join(" och ")`. Syns i skärmbilden av Veckan: "Byt in Kinsky och N.Williams och McBurnie". | Hjälpfunktion som sätter komma mellan alla utom de två sista. | **Ja**, skärmbild + kod |
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B6
+## Vad som gjordes med B1–B7
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -217,6 +217,31 @@ separat, från tre dygn ned till passerad.
 
 Kontrastsvepet från **B5** kördes om efteråt: fortfarande 0 fall på alla tio
 flikarna.
+
+**B7.** `},[])` — en rad. Arbetet låg i att mäta, inte i att ändra.
+
+Effekten går inte att mäta på toppnivå: första raden är
+`if(window.parent===window) return;`, så den gör ingenting när boten är öppen
+direkt. Mätningen krävde en riktig föräldersida med en iframe, samma upplägg
+som wennerqvist.design, plus en räknare runt `ResizeObserver`.
+
+| | observers vid 5 flikbyten | observers vid 60 s stillastående |
+|---|---|---|
+| före | 4 | 2 |
+| efter | **0** | **0** |
+
+Totalt skapas nu **en** observer, och noll rivs.
+
+**B6 gjorde B7 värre, och det är värt att säga rakt ut.** Före `790692f`
+churnade effekten bara när något renderade om, alltså vid klick. Nedräkningens
+tick på 30 s renderar om `App` oavsett vad användaren gör, så en orörd flik
+rev ~2 880 observers per dygn.
+
+**Risken med `[]` kontrollerades, inte antogs:** en tom lista kan ge en
+inaktuell closure, och en observer som skapas en gång kan vara död. Blocket
+stänger inte om någon state eller prop. Och efter fixen gav en verklig
+storleksändring av iframen fyra nya höjdmeddelanden med fortfarande bara en
+observer — den lever.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade
