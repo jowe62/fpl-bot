@@ -304,11 +304,39 @@ function tidTill(deadlineMs, nu){
   if(kvar <= 0) return {text:"Passerad", passerad:true, bradska:false};
   const m = Math.floor(kvar/60000), t = Math.floor(m/60), d = Math.floor(t/24);
   return {
-    text: d>=1 ? `${d}d ${t%24}t` : t>=1 ? `${t}t ${m%60}m` : `${m}m`,
+    // Tunt mellanrum, av samma skal som kpiTal: ett vanligt mellanslag ar
+    // 23,20 px i den har monospacen och alltsa lika brett som avstandet till
+    // NASTA nyckeltal, sa "23t 3m" las som tva. Uppmatt 2026-10-30.
+    text: d>=1 ? `${d}d\u2009${t%24}t` : t>=1 ? `${t}t\u2009${m%60}m` : `${m}m`,
     passerad: false,
     // Tre timmar kvar ar inte dekoration, det ar riktningen "gor det nu".
     bradska: kvar < 3*3600*1000,
   };
+}
+// Stora tal i nyckeltalsraden.
+//
+// `toLocaleString("sv-SE")` grupperar med U+00A0, hart mellanslag. I brodtext
+// ar det ratt. I nyckeltalsraden ar det fel, och det gar att mata: IBM Plex
+// Mono ar en monospace, sa VARJE tecken - inklusive mellanslaget - ar lika
+// brett. Uppmatt 2026-10-30 vid 40 px: separatorn 23,20 px, avstandet mellan
+// tva SKILDA nyckeltal 24 px. Skillnad 0,79 px.
+//
+// Da finns ingen visuell skillnad mellan "inuti samma tal" och "mellan tva
+// tal", och "#3 136 724" las som tre nyckeltal bredvid varandra - vilket det
+// sag ut som i granskningens skarmbild, dar bara den forsta tredjedelen hade
+// en etikett under sig.
+//
+// U+2009 (tunt mellanslag) mats till 7,20 px i samma kontext, alltsa en
+// tredjedel av avstandet mellan nyckeltal i stallet for lika med det. Det ar
+// dessutom den typografiskt riktiga gruppavskiljaren; U+00A0 ar bara det
+// Intl rakar ge.
+//
+// PROVAT OCH FORKASTAT: att i stallet oka `gap` mellan nyckeltalen. For att
+// na samma tydlighet kravdes 48 px, och da blev mobilraden fyra rader i
+// stallet for tre (matt vid 375 px). 32 px, som ar det storsta steget
+// designsystemet tillater mellan ytor, gav bara 1,38 ganger separatorn.
+function kpiTal(n){
+  return n==null ? null : n.toLocaleString("sv-SE").replace(/\u00A0/g, "\u2009");
 }
 function deadlineStamp(ms){
   try{
@@ -4023,7 +4051,7 @@ function App(){
           {!TEAMS.find(t=>t.id===TEAM_ID)?.mine && <span style={{color:T.warn}}> · du tittar på ett annat lag</span>}
         </div>
         <div style={c.stats} className="kpi">
-          <div style={c.stat}><div className="val" style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
+          <div style={c.stat}><div className="val" style={c.statVal}>#{kpiTal(entry.summary_overall_rank)}</div><div style={c.statLbl}>Rank</div></div>
           <div style={c.stat}><div className="val" style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
           <div style={c.stat}><div className="val" style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
           {(()=>{

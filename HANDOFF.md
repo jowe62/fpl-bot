@@ -624,6 +624,33 @@ tidsstämpel. Det ger en omrendering varje halvminut; kontrollerat att inget
 tungt hänger i den vägen — `buildChipAdvice` är det enda omemoiserade och
 kostar 4,2 ms. `buildPlan` och `buildRecs` ligger i `useMemo`.
 
+## Typografi i nyckeltalsraden
+
+**I en monospace är mellanslaget lika brett som en siffra.** IBM Plex Mono vid
+40 px: varje glyf 23,20 px, inklusive U+00A0. `gap` mellan nyckeltalen är
+24 px. Skillnad 0,79 px — alltså ingen visuell skillnad mellan "inuti samma
+tal" och "mellan två tal", och `#3 136 724` läses som tre nyckeltal.
+
+Därför: **stora tal i nyckeltalsraden grupperas med U+2009**, tunt
+mellanslag (7,20 px vid 40 px, 4,33 px vid 24 px). Hjälparen heter `kpiTal`.
+`tidTill` gör samma sak i nedräkningen. Brödtext ska däremot behålla
+`toLocaleString("sv-SE")` rakt av — där är U+00A0 rätt.
+
+Lägger du till ett nyckeltal vars värde innehåller ett mellanslag: använd
+U+2009, annars läses det som två.
+
+**Provat och förkastat:** att öka `gap`. 48 px behövdes för samma tydlighet,
+och gav fyra rader i stället för tre vid 375 px. 32 px — designsystemets
+största steg mellan ytor — gav bara 1,38 gånger separatorn.
+
+### Så mäter du det
+
+`Range.getBoundingClientRect()` per tecken ger den faktiska bredden i den
+faktiska fonten. Mät inte med en egen `<span>` om du inte kopierar
+`fontFamily`, `fontSize`, `fontWeight`, `letterSpacing` och
+`fontVariantNumeric` explicit — `cssText` från `getComputedStyle` bär inte
+över fonten, och då får du svar som är fel med en faktor sju.
+
 ## Färg och kontrast — regler som är uppmätta
 
 **Varje textton ska klara WCAG AA (4,5:1) mot ALLA fyra ytorna** — `bg`,
