@@ -1292,10 +1292,15 @@ function chipGainsOverHorizon(starters, bench, fm, gw, useOdds){
     // Triple Captain ger ETT extra varv utover dubbleringen, alltsa exakt samma
     // vantevarde som bandet i sig - och vice arver chipet om kaptenen uteblir.
     const tc=armband(starters.filter(p=>p.element_type!==1),xp)?.extra ?? 0;
-    // Free Hit: det du förlorar på spelare utan match den omgången.
-    const blanks=starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===g));
-    const fh=blanks.reduce((s,p)=>s+estimateXpAt(p,fm,gw,false).xp,0);
-    out.push({gw:g, bb, tc, fh, blanks:blanks.length});
+    // Free Hit: bara ANTALET startspelare utan match. Nagon xP-summa raknas
+    // INTE har. Den gamla summan matte blanks mot `gw` i stallet for `g`, och
+    // eftersom en blank spelare per definition saknar match i sin egen omgang
+    // gav raden alltid 0 for g===gw (uppmatt 2026-10-30: en syntetisk blank pa
+    // Haaland gav fh 0,000 trots 3,15 xP/omgang i estimateXpLong). Talet lastes
+    // dock aldrig - fh-kortet satter `gain:null` - sa ingen siffra var fel i
+    // UI:t. Vad chipet ar vart raknar freeHitGain mot din budget.
+    const blanks=starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===g)).length;
+    out.push({gw:g, bb, tc, blanks});
   }
   return out;
 }
@@ -1313,15 +1318,12 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
   // omgangen var basta laget av fem. Troskeln ar ett omdome, inte en
   // uträkning: en halv xP ar mindre an modellens egen osakerhet.
   const SKILJER_SIG = 0.5;
-  // nollText: nar varje omgang ar exakt noll finns ett tydligare besked an
-  // "de ligger inom 0.0 xP fran varandra". Noll betyder nagot konkret.
-  const line=(k,unit,nollText)=>{
+  const line=(k,unit)=>{
     const v=horizon.map(r=>r[k]);
-    if(nollText && Math.max(...v)===0) return nollText;
     // Fem likvardiga varden ar ingen jamforelse. Reduce:n nedan skulle valja
     // den forsta posten och darmed pasta att den har omgangen ar bast, nar
-    // sanningen ar att den bara star forst i listan. Free Hit hamnar har
-    // nastan varje vecka: har ingen spelare blank match sa ar alla fem noll.
+    // sanningen ar att den bara star forst i listan. Bench Boost hamnar har
+    // nar hela banken ar skadad: da ar alla fem omgangarna noll.
     const sorterat=[...v].sort((a,b)=>b-a);
     const marginal=sorterat[0]-sorterat[1];
     if(marginal < SKILJER_SIG)

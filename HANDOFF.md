@@ -379,9 +379,11 @@ dina elva som finns i den. Det är **ägarandel, inget annat** — se öppen tr�
 
 ## Chip-rådgivning
 Ett chip är värt exakt den xP det tillför, och den siffran räknas ut i stället
-för att jämföras mot en tröskel. Bench Boost = bänkens xP. Triple Captain = ett
-extra varv av bästa spelaren. Free Hit = det du förlorar på spelare utan match.
-Varje chip jämförs också mot de fem kommande omgångarna.
+för att jämföras mot en tröskel. Bench Boost = bänkens xP **minus** vad
+auto-bytena ändå ger (se `benchBoostGain`; raden påstod "bänkens xP" ända fram
+till `430f2aa` och var då fel med 40–96 %). Triple Captain = ett extra varv av
+bästa spelaren, med vice-termen. Free Hit får **ingen** xP-summa här — se
+stycket nedan. Varje chip jämförs också mot de fem kommande omgångarna.
 
 **Wildcard får ingen siffra** och ska inte ges en. Det byter hela truppen och
 värdet beror på vilket lag man skulle bygga i stället — modellen kan inte räkna
@@ -393,6 +395,21 @@ endagstrupp budgeten räcker till och den elva du redan har. Det gamla måttet
 ("vad du förlorar på spelare utan match") missade det vanligaste läget: att
 flera lag har lätta matcher och du inte äger deras nyckelspelare. Kortet visar
 ingen siffra förrän knappen tryckts, eftersom talet kräver truppvärdet.
+
+`chipGainsOverHorizon` räknar därför **bara antalet** blanka startspelare, inte
+någon xP-summa. Fram till 2026-10-30 räknade den också en summa, och den var
+fel: blanks värderades mot `gw` i stället för mot sin egen omgång `g`, och en
+blank spelare saknar per definition match i sin egen omgång. Uppmätt med en
+syntetisk blank på Haaland gav summan 0,000 trots 3,15 xP/omgång i
+`estimateXpLong`. Talet lästes dock aldrig — `line("fh", …)` anropades inte och
+fh-kortet sätter `gain:null` — så ingen felaktig siffra visades. Återinför ingen
+sådan summa; `freeHitGain` är den enda vägen till Free Hits värde.
+
+**Mätt 2026-10-30: inga riktiga blanka omgångar finns i fixturelistan för GW9–38
+än.** Alla 20 lag har match i varje omgång. Blanks uppstår först när cupmatcher
+flyttar ligamatcher, och FPL hade inte publicerat det. Konsekvensen: allt som
+rör blanks går *inte* att testa mot live-data — det kräver en syntetisk blank
+(ta bort lagets post ur fixturekartan `fm` för en omgång).
 
 De gamla trösklarna (`avgTeamFdr3 > 3.3`, `benchXp >= 14`) var handplockade utan
 stöd, och en "för"-punkt påstod att Bench Boost ger 6–8 poäng i snitt utan

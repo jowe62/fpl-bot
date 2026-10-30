@@ -4,12 +4,14 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`) |
-| **Kvar** | B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`2cd5eb9`) |
+| **Kvar** | B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
-Inga filer i appen ändrade. Detta är enbart utredning.
+Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2
+och B3 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
+det var sant när rapporten skrevs och fel därefter.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
 meddelandet och har granskats därifrån: Veckan (smal), Kapten, Byten, Fixtures,
@@ -79,7 +81,7 @@ Fragmentet når aldrig en server.
 |---|---|---|---|---|---|---|
 | ~~B1~~ | Bugg / modell | ~~Kritisk~~ **KLAR** `430f2aa` | Bench Boost överskattas med 40–96 %. Chipets värde sätts till hela bänkens xP, men utan chipet ger auto-bytena redan en stor del av den poängen när en startspelare uteblir. | `index.html:1178` `const bb=bench.reduce((s,p)=>s+xp(p),0)` med kommentaren "alltså exakt bänkens xP". Kört: frisk trupp bb 13,53 xP, förväntat antal uteblivna startspelare 1,40, bänkspelares xP när han spelar 3,82 → auto-byten värda ca 5,36 xP, alltså **40 %** av det chipet påstås ge. Med tre skadade i truppen: 96 %. Facit-fliken bekräftar att auto-byten faktiskt utlöses ("1 startspelare uteblev, så auto-bytena var i spel"). | Dra av auto-bytenas väntevärde: `bb = bänkens xP − Σ(1−xMins) över startelvan × villkorad bänk-xP`, med hänsyn till att målvakt bara ersätts av målvakt. | **Ja**, kört |
 | ~~B2~~ | Modell / saknad funktion | ~~Hög~~ **KLAR** `ee2defe` | Vice kapten finns inte i någon uträkning. Modellen dubblar kaptenen utan att väga in att vice tar över om kaptenen inte spelar, och boten rekommenderar aldrig en vice. | `isVice` förekommer på exakt två ställen, `index.html:1734` och `1784`, båda rent visuella. Kaptensvärdet är `xi.total + kapten` utan vice-term. Kört: Haaland speltid 89 %, vices villkorade xP 4,59 → modellen missar ca **0,45 xP** och kan välja fel kapten när två kandidater ligger nära men har olika startsannolikhet. | Lägg till vice-termen i kaptensvärdet och ranka vice separat i Kapten-fliken. Gäller även Triple Captain, där vice ärver multiplikatorn. | **Ja**, kört |
-| **B3** | Bugg | Medel | Free Hits blankvärde blir alltid 0 i den omgång man faktiskt skulle spela chipet. | `index.html:1183-1184`: spelare som saknar match i `g` värderas med `estimateXpAt(p,fm,**gw**,false)`. När `g===gw` returnerar den funktionen 0, eftersom `estimateXpAt` har `if(!fixtures.length) return {xp:0}` (rad 528). Kört: en spelare utan match i `gw` ger xP 0. | Värdera blanks mot ett generellt mått på spelarens värde, till exempel `estimateXpLong`, i stället för en specifik omgång som kan vara samma blanka omgång. | **Ja**, kört |
+| ~~B3~~ | Bugg / död kod | ~~Medel~~ **KLAR** `2cd5eb9` | Free Hits blankvärde räknades mot fel omgång och blev alltid 0 för `g===gw`. **Allvaret var dock överskattat: talet nådde aldrig användaren.** | `index.html:1297` värderade blanks med `estimateXpAt(p,fm,**gw**,false)` i en loop över `g`. En blank spelare saknar per definition match i sin egen omgång, så raden gav 0. Kört med syntetisk blank (Haalands lag utan match i GW9): summan 0,000 trots `estimateXpLong` 3,15 xP/omgång. **Men `fh` lästes aldrig** — `line("fh", …)` anropas inte (bara `line("bb")` och `line("tc")`), fh-kortet sätter `gain:null` och visar `now.blanks` i stället. Inget utanför `index.html` läser `fh` heller. | Ta bort den döda summan, behåll antalet. `freeHitGain` är den enda vägen till Free Hits värde. | **Ja**, kört före och efter |
 | **B4** | Bugg / tillstånd | Medel | Kastar `buildRecs`, fastnar Byten-fliken på "Analyserar..." för alltid och felet försvinner i konsolen. | `index.html:3679-3686`: `setAnalyzing(true)` följs av ett `setTimeout` utan `try/catch`, där `setAnalyzing(false)` ligger **efter** anropet som kan kasta. `buildRecs` kastar numera om säljpriser saknas (rad ~1385). Grinden ligger i UI:t, kastet i modellen — två olika ställen. `SquadSuggestion.bygg()` gör rätt och fångar, så mönstret är inkonsekvent i samma fil. | `try/catch` runt kroppen, `setAnalyzing(false)` i `finally`, och visa felet som `SquadSuggestion` redan gör. | **Ja**, lästa kodvägar |
 | **B5** | Tillgänglighet | Medel | `T.dim` används för text ned till 10 px och klarar inte WCAG AA. | Uträknat kontrastförhållande: `T.dim` (#6C7684) mot kort (#161A21) = **3,79:1**, mot bakgrund = 4,33:1. AA kräver 4,5:1 för brödtext. Används i `statLbl` 10 px (rad 1615), `secTitle` 10 px (1663), `briefIntro` 13 px (1625), `staleNote` 12 px (1635). Knappens avstängda läge använder `T.disabled` (#4E5765) = **2,39:1**, under även 3:1-gränsen för stor text. | Lyft `dim` till minst #7C8694 (ca 4,6:1) eller använd `mut` (7,96:1) för all text under 18 px. Avstängd knapp behöver egen färg. | **Ja**, uträknat |
 | **B6** | UX | Medel | Deadline visas aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**. Fältet finns i bootstrap och används i `api/odds.js` men läses aldrig i klienten. Fredagskollen säger "sedan 29 okt. 20:57" men aldrig hur lång tid som är kvar. | Visa deadline och nedräkning i nyckeltalsraden, intill "NÄSTA OMGÅNG". |  **Ja**, grep |
@@ -103,7 +105,7 @@ Fragmentet når aldrig en server.
 | Kapten | Rankning på xP-modell | Ja, ren argmax på `estimateXp`. Ingen vice-rankning (**B2**) |
 | Byten | Femveckorsplan plus tre enskilda alternativ | Ja. Planen och alternativen räknar **olika** saker, vilket framgår av rubrikerna. Risk för låsning (**B4**) |
 | Fixtures | xP per omgång, färg relativt spelarens eget snitt | Ja, matchar riggen |
-| Chips | Vad varje chip är värt | **Nej.** Bench Boost är fel (**B1**), Free Hits horisontvärde är fel (**B3**), förbrukade chip visar värde (**B12**) |
+| Chips | Vad varje chip är värt | Bench Boost (**B1**) och Free Hits döda horisontvärde (**B3**) är åtgärdade. Kvar: förbrukade chip visar värde (**B12**) |
 | Ligan | Serietabell räknad ur matchresultat | **Ja, exakt.** Oberoende uträknad: MCI 8-7-0-1, 20-9, 21 p. Botens påstående att FPL:s egen tabelldata är tom är verifierat: `played/win/draw/loss/points` är noll för alla 20 lag |
 | Eliten | Effektivt ägande ur topp 50 | Formeln håller: Haaland 174 % = ägande plus kaptensandel, vilket är rätt definition |
 | Facit | Jämför prognos mot utfall | Ja. Baslinjen finns med, vilket är rätt. Hårdkodad bänkstorlek (**B14**) |
@@ -122,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1 och B2
+## Vad som gjordes med B1, B2 och B3
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -137,6 +139,19 @@ vice ihop: `xP(K) + (1-speltid(K)) * xP(V)`, uttömmande över alla par. Använd
 `viceKaptenNamn` plus en ordlisterad i `api/briefing.js`. Effekt: +0,45 xP på
 Johns trupp. **Bandet flyttas inte** — på 20 riktiga trupper valdes alltid samma
 kapten som en ren xP-sortering.
+
+**B3, `2cd5eb9`.** Den döda `fh`-summan i `chipGainsOverHorizon` är borta; raden bär nu
+bara `blanks` (antalet). Den oanvända `nollText`-parametern i `line()` och en
+kommentar som påstod att Free Hit passerar där togs bort i samma ändring.
+**Ingenting i UI:t ändras** — samma fyra chipkort, samma rubriker och samma
+siffror före och efter, verifierat genom att köra `buildChipAdvice` i båda
+lägena. Det var alltså hygien, inte en felaktig siffra för John.
+
+Två fynd på vägen: det finns **inga riktiga blanka omgångar i GW9–38** (alla 20
+lag har match varje omgång, mätt 2026-10-30), så blanks går bara att testa med
+en syntetisk blank. Och `bb` visar 0,00 på Johns trupp av en riktig orsak, inte
+en bugg: hela bänken — João Pedro, Shaw, Szoboszlai — har
+`chance_of_playing_next_round: 0`, så `xMins` är 0 och bänken är värd noll.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade
