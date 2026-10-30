@@ -9,9 +9,10 @@
 
 Ordningen var Johns. Han plockade ID, ett i taget. **Alla femton är åtgärdade.**
 
-Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2,
-B3–B7 och B13 har rört `index.html`, B8 `api/fpl.js`. Raden här påstod tidigare att inget ändrats;
-det var sant när rapporten skrevs och fel därefter.
+Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** —
+B1–B7 och B9–B14 har rört `index.html`, B8 och B15 `api/fpl.js`. Raden här
+påstod tidigare att inget ändrats; det var sant när rapporten skrevs och fel
+därefter. Den listade sedan en ofullständig uppsättning ID — rättat här.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
 meddelandet och har granskats därifrån: Veckan (smal), Kapten, Byten, Fixtures,
