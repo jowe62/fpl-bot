@@ -1168,14 +1168,74 @@ const CHIP_HORIZON = 5;
 // avgjorde alltsa vilken omgang som "vann".
 // useOdds=true anvands bara for talet som visas for den har omgangen, dar
 // odds ar den basta tillgangliga uppskattningen.
+// Fordelningen for ANTALET startspelare som uteblir. Varje spelare har sin
+// egen sannolikhet, sa det ar en Poisson-binomialfordelning och inte en
+// binomial. DP over spelarna, O(n^2) och forsumbart for tio spelare.
+function antalUteblivna(sannolikheter){
+  let f=[1];
+  for(const q of sannolikheter){
+    const n=new Array(f.length+1).fill(0);
+    for(let i=0;i<f.length;i++){ n[i]+=f[i]*(1-q); n[i+1]+=f[i]*q; }
+    f=n;
+  }
+  return f;                       // f[k] = P(exakt k uteblir)
+}
+
+// Vad Bench Boost FAKTISKT ar vart.
+//
+// Chipet ar INTE bankens xP. Utan chipet gor FPL auto-byten: en startspelare
+// som spelar noll minuter ersatts av forsta spelbara bankspelaren i
+// bankordning. En del av bankens poang far du alltsa anda, och chipet ar bara
+// vart det som auto-bytena inte redan ger.
+//
+// For bankspelare nummer k bland utespelarna galler att han kommer in UTAN
+// chipet precis nar minst k startande utespelare uteblir:
+//
+//   vinst_k = xP_k * (1 - P(N >= k))
+//
+// dar N ar antalet uteblivna startande utespelare. Malvaktsplatsen ar skild
+// fran utespelarnas ko: reservmalvakten kommer in precis nar ordinarie
+// uteblir, och rakans inte mot de tre utebytena.
+//
+// Formeln degraderar ratt i bada andarna. Spelar alla startspelare sakert ar
+// N alltid noll och chipet vart hela banken. Ar en startspelare skadad kommer
+// forsta bankspelaren in anda, och hans bidrag till chipet ar noll.
+//
+// Uppmatt 2026-10-30 mot den gamla formeln (hela bankens xP): pa en frisk
+// trupp gav den 13,53 xP dar auto-bytena redan var varda ca 5,36, alltsa
+// 40 procent for mycket. Med tre skadade i truppen var felet 96 procent.
+//
+// Formationsreglerna vags inte in: ett auto-byte kan blockeras av att elvan
+// annars blir olaglig. Det gor att auto-bytena har varderas nagot for hogt,
+// vilket UNDERSKATTAR chipet. For ett rad om chip ar det ratt riktning att
+// fela pa.
+function benchBoostGain(starters, bench, xp){
+  const uteSpelare=starters.filter(p=>p.element_type!==1);
+  const f=antalUteblivna(uteSpelare.map(p=>1-xMins(p)));
+  const minst=k=>{ let s=0; for(let i=k;i<f.length;i++) s+=f[i]; return s; };
+  const ordMv=starters.find(p=>p.element_type===1);
+  let vinst=0, k=0;
+  for(const p of bench){
+    if(p.element_type===1){
+      // Reservmalvakten kommer in precis nar den ordinarie uteblir.
+      const kommerInAnda = ordMv ? 1-xMins(ordMv) : 0;
+      vinst += xp(p)*(1-kommerInAnda);
+    } else {
+      k++;
+      vinst += xp(p)*(1-minst(k));
+    }
+  }
+  return vinst;
+}
+
 function chipGainsOverHorizon(starters, bench, fm, gw, useOdds){
   const squad=[...starters,...bench];
   const out=[];
   for(let g=gw; g<gw+CHIP_HORIZON; g++){
     const isNext=useOdds && g===SEASON.nextGw;
     const xp=p=>estimateXpAt(p,fm,g,isNext).xp;
-    // Bench Boost: bänkens poäng räknas, alltså exakt bänkens xP.
-    const bb=bench.reduce((s,p)=>s+xp(p),0);
+    // Bench Boost: vad chipet ger UTOVER auto-bytena. Se benchBoostGain.
+    const bb=benchBoostGain(starters,bench,xp);
     // Triple Captain: kaptenen räknas tre gånger i stället för två,
     // alltså ETT extra varv av den bästa spelaren.
     const tc=Math.max(0,...starters.filter(p=>p.element_type!==1).map(xp));
@@ -1240,6 +1300,8 @@ function buildChipAdvice(starters, bench, fm, tb, gw, bs) {
       detail:line("bb","xP"),
       notes:[
         `Bänken består av ${bench.map(p=>p.web_name).join(", ")}.`,
+        `Talet är vad chipet ger UTÖVER auto-bytena. Uteblir någon i elvan kommer` +
+        ` en bänkspelare in ändå, och den poängen får du utan att spela chipet.`,
         myDGW.length?`${myDGW.length} av dina spelare har dubbel match den här omgången.`:null,
       ].filter(Boolean),
     },
