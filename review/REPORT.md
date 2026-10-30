@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`) |
 | **Kvar** | B9, B10, B11, B12, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
@@ -91,7 +91,7 @@ Fragmentet når aldrig en server.
 | **B10** | UX / språk | Låg | Uppräkningar blir "A och B och C" i stället för "A, B och C". | `index.html:2307` och `2313`: `.join(" och ")`. Syns i skärmbilden av Veckan: "Byt in Kinsky och N.Williams och McBurnie". | Hjälpfunktion som sätter komma mellan alla utom de två sista. | **Ja**, skärmbild + kod |
 | **B11** | Modell | Låg | Triple Captain utesluter målvakter ur kaptensvalet. | `index.html:1181`: `starters.filter(p=>p.element_type!==1)`. FPL tillåter kapten på målvakt. Filtret är ett antagande, inte en regel läst ur API:t, vilket projektets egna regler säger att man inte ska göra. | Ta bort filtret. En målvakt vinner ändå aldrig i praktiken, så beteendet ändras inte — men antagandet försvinner. | **Ja**, läst |
 | **B12** | UX | Låg | Chips-fliken räknar fram och visar ett värde för ett chip som är förbrukat. | Skärmbilden av Chips: Triple Captain visar "Ger 4.5 xP extra den här omgången" samtidigt som den är märkt SLUT och "använt i GW3". Koden sätter `available:false` (rad 1143) men renderar ändå värdet. | Visa inget värde när `available` är falskt. |  **Ja**, skärmbild + kod |
-| ~~B13~~ | UX | ~~Låg~~ **KLAR** | Ranken läses som tre separata nyckeltal. | Uppmätt i DOM:en med `Range.getBoundingClientRect`, tecken för tecken: IBM Plex Mono är monospace, så **varje** glyf vid 40 px är 23,20 px bred — inklusive U+00A0. Avståndet mellan två **skilda** nyckeltal är 24 px. **Skillnad 0,79 px.** Rapportens korrigering stämde: talet radbryter inte, separatorerna är hårda mellanslag (teckenkod 160 avläst). Samma mätning visade att **`23t 3m`, nyckeltalet från B6, hade exakt samma fel** (23,21 px). | U+2009 i stället för U+00A0 i båda. | **Ja**, mätt före och efter, desktop och mobil |
+| ~~B13~~ | UX | ~~Låg~~ **KLAR** `9baf325` | Ranken läses som tre separata nyckeltal. | Uppmätt i DOM:en med `Range.getBoundingClientRect`, tecken för tecken: IBM Plex Mono är monospace, så **varje** glyf vid 40 px är 23,20 px bred — inklusive U+00A0. Avståndet mellan två **skilda** nyckeltal är 24 px. **Skillnad 0,79 px.** Rapportens korrigering stämde: talet radbryter inte, separatorerna är hårda mellanslag (teckenkod 160 avläst). Samma mätning visade att **`23t 3m`, nyckeltalet från B6, hade exakt samma fel** (23,21 px). | U+2009 i stället för U+00A0 i båda. | **Ja**, mätt före och efter, desktop och mobil |
 | **B14** | Kod | Låg | "av fyra bänkspelare" är hårdkodat. | `index.html:875`. Bänken är alltid fyra i FPL, så det stämmer idag. Det är en konstant som borde vara `r.benchNames.length`. | Härled talet. | **Ja**, läst |
 | **B15** | Säkerhet | Låg | Felsvar från `/api/fpl` saknar CORS-header och läcker intern feltext. | `api/fpl.js:8` returnerar fel utan `ACAO`, rad 14 returnerar `e.message` rakt ut. | Sätt headern innan felsvaren och logga detaljen i stället för att returnera den. | **Ja**, läst |
 
@@ -273,7 +273,7 @@ Noterat i HANDOFF.md som öppen tråd.
 **B15 ligger kvar i samma fil** och rörs inte här: felsvaren saknar fortfarande
 CORS-header (nu konsekvent, eftersom ingen sätts) och returnerar `e.message`.
 
-**B13.** Orsaken är mätt, inte gissad: i en monospace är mellanslaget lika
+**B13, `9baf325`.** Orsaken är mätt, inte gissad: i en monospace är mellanslaget lika
 brett som en siffra, och `gap` mellan nyckeltalen råkar vara samma tal.
 
 | | separator i talet | gap mellan nyckeltal | kvot |
