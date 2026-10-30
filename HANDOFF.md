@@ -580,6 +580,15 @@ Proxyn släpper igenom **exakt de sju sökvägar boten begär** och inget annat:
 /event/{gw}/live/
 ```
 
+**Vitlistan beskriver FORMER, inte id.** `/entry/{id}/` släpps igenom för
+vilket manager-id som helst, eftersom boten själv använder den formen.
+Kontrollerat mot skarpa deployen 2026-10-30: `/entry/1/` ger 200, medan
+`/leagues-classic/…`, `/element-summary/…` och `/event-status/` ger 400. Kvar
+som öppen yta är alltså publika uppgifter om andra managers på kontots kvot —
+mycket mindre än förut, men inte noll. Att stänga det kräver lag-id:na i
+`api/fpl.js`, vilket ger truppens id på två ställen som kan driva isär.
+Obeslutat.
+
 Lägger du till ett `fplFetch` i `index.html` **måste** mönstret in i
 `TILLATNA` i `api/fpl.js`, annars svarar proxyn 400. Det är meningen: en ny
 väg ska synas direkt i stället för att bli en ny lucka.
