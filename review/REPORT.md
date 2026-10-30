@@ -295,10 +295,27 @@ Vad som faktiskt stängdes: allt utanför de sju formerna —
 godtyckliga id, alltså publika uppgifter om andra managers på kontots kvot.
 Mycket mindre än förut, men inte noll.
 
-Att stänga även det kräver att de tillåtna lag-id:na står i `api/fpl.js`, och
-då finns truppens id på två ställen — `TEAMS` i `index.html` och vitlistan —
-som kan driva isär när ett lag läggs till. Det är en avvägning John får göra,
-inte en som faller ut av den här granskningen.
+**Stängd 2026-10-30 på Johns beslut.** Vitlistan binder nu `entry`-formerna
+till de två lag-id:na. Mätt mot den riktiga handlern: botens elva egna vägar
+ger 200 för **båda** lagen, och åtta främmande nekas — inklusive
+`/entry/10364860/` och `/entry/103648/`, alltså Johns id med en siffra för
+mycket respektive för lite, som den ankrade regexen fångar.
+
+Duplikatet (`LAG` i `api/fpl.js` mot `TEAMS` i `index.html`) är medvetet. Det
+finns inget byggsteg: en delad fil skulle antingen behöva hämtas av
+webbläsaren vid uppstart — ett nytt felbart steg innan boten visar något —
+eller ligga utanför `api/` och förlita sig på att Vercel får med den i bunten.
+
+**Avvikelsen failar högljutt**, vilket är vad som gör duplikatet acceptabelt.
+Prövat genom att lägga ett tredje lag i `index.html` men inte i vitlistan och
+byta till det:
+
+> **Kunde inte hämta FPL-data** — Anropet mot FPL misslyckades med HTTP 400.
+> Resursen som föll var `/entry/4182037/`.
+
+Felvyn namnger alltså exakt sökvägen som nekades. `/event/{gw}/live/` är kvar
+öppen för alla omgångar: det är omgångsdata, inte lagdata, och går inte att
+knyta till ett lag.
 
 **Sidofynd, inte åtgärdat:** koden sätter `Cache-Control: s-maxage=60`, men
 skarpa deployen svarar `public, max-age=0, must-revalidate` med

@@ -18,13 +18,33 @@
 // Listan ar exakt de anrop boten gor, inget mer. Lagger du till ett anrop i
 // index.html maste du lagga till monstret har, annars svarar proxyn 400 - och
 // det ar meningen: en trasig ny vag ska synas direkt, inte bli en ny lucka.
+// Lagen boten visar. MASTE spegla `TEAMS` i index.html.
+//
+// Varfor duplicerat och inte delat: det finns inget byggsteg. En delad fil
+// skulle antingen behova hamtas av webblasaren vid uppstart (ett nytt
+// felbart steg innan boten kan visa nagot) eller laggas utanfor api/ och
+// forlita sig pa att Vercel far med den i bunten - och projektets egen regel
+// sager att API-filerna ska ligga i api/ och heta *.js.
+//
+// Avvikelsen FAILAR HOGLJUTT, vilket ar varfor duplikatet ar acceptabelt:
+// laggs ett lag till i index.html men inte har svarar proxyn 400, `fplFetch`
+// kastar pa `HTTP 400` och App:s felvy visar status och sokvag. Inget tyst
+// bortfall.
+//
+// Fram till 2026-10-30 slapptes `/entry/{id}/` igenom for VILKET id som
+// helst, eftersom vitlistan beskrev sokvagsformer och inte lag. Det gjorde
+// funktionen till en gratis lasare av andra managers publika data, pa
+// kontots kvot. `/entry/1/` gav 200 mot skarpa deployen.
+const LAG = [1036486, 3382468];
+const ID = `(?:${LAG.join("|")})`;
 const TILLATNA = [
   /^\/bootstrap-static\/$/,
   /^\/fixtures\/$/,
-  /^\/entry\/\d{1,12}\/$/,
-  /^\/entry\/\d{1,12}\/history\/$/,
-  /^\/entry\/\d{1,12}\/transfers\/$/,
-  /^\/entry\/\d{1,12}\/event\/\d{1,3}\/picks\/$/,
+  new RegExp(`^\\/entry\\/${ID}\\/$`),
+  new RegExp(`^\\/entry\\/${ID}\\/history\\/$`),
+  new RegExp(`^\\/entry\\/${ID}\\/transfers\\/$`),
+  new RegExp(`^\\/entry\\/${ID}\\/event\\/\\d{1,3}\\/picks\\/$`),
+  // Omgangsdata, inte lagdata - gar inte att knyta till ett lag.
   /^\/event\/\d{1,3}\/live\/$/,
 ];
 

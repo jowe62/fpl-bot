@@ -580,14 +580,22 @@ Proxyn släpper igenom **exakt de sju sökvägar boten begär** och inget annat:
 /event/{gw}/live/
 ```
 
-**Vitlistan beskriver FORMER, inte id.** `/entry/{id}/` släpps igenom för
-vilket manager-id som helst, eftersom boten själv använder den formen.
-Kontrollerat mot skarpa deployen 2026-10-30: `/entry/1/` ger 200, medan
-`/leagues-classic/…`, `/element-summary/…` och `/event-status/` ger 400. Kvar
-som öppen yta är alltså publika uppgifter om andra managers på kontots kvot —
-mycket mindre än förut, men inte noll. Att stänga det kräver lag-id:na i
-`api/fpl.js`, vilket ger truppens id på två ställen som kan driva isär.
-Obeslutat.
+**`entry`-formerna är bundna till lag-id.** `LAG` i `api/fpl.js` måste spegla
+`TEAMS` i `index.html`. Fram till 2026-10-30 beskrev vitlistan bara
+sökvägsformer, så `/entry/{vilket id som helst}/` gick igenom och funktionen
+var en gratis läsare av andra managers data på kontots kvot.
+
+**Duplikatet är medvetet.** Det finns inget byggsteg: en delad fil skulle
+antingen behöva hämtas av webbläsaren vid uppstart — ett nytt felbart steg
+innan boten visar något — eller ligga utanför `api/`, mot projektets egen
+regel, och förlita sig på Vercels filspårning.
+
+**Lägger du till ett lag: lägg id:t på BÅDA ställena.** Glömmer du vitlistan
+failar det högljutt, inte tyst — felvyn säger `HTTP 400` och namnger
+sökvägen (`Resursen som föll var /entry/4182037/`). Prövat 2026-10-30.
+
+`/event/{gw}/live/` är kvar öppen för alla omgångar: omgångsdata, inte
+lagdata, går inte att knyta till ett lag.
 
 Lägger du till ett `fplFetch` i `index.html` **måste** mönstret in i
 `TILLATNA` i `api/fpl.js`, annars svarar proxyn 400. Det är meningen: en ny
