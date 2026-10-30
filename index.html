@@ -2223,11 +2223,24 @@ function ChipTab({starters,bench,fm,tb,gw,bs,chipAvail,sellValue,bank}){
                     <span className="num" style={{fontSize:"20px",fontWeight:700,color:chip.gain>0?T.brand:T.mut}}>
                       +{chip.gain.toFixed(1)} xP
                     </span>)
-                : <span style={{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:600,letterSpacing:".14em",color:T.mut}}>SLUT</span>}
+                // SLUT betyder spelat. Ar chipet bara utanfor sitt fonster ar
+                // det inte forbrukat, och da vore SLUT ett felaktigt besked -
+                // det intraffar for wildcard i GW1, vars fonster borjar i GW2.
+                : <span style={{fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:600,letterSpacing:".14em",color:T.mut}}>
+                    {av.usedAt!=null ? "SLUT" : "STÄNGT"}
+                  </span>}
             </div>
             <div style={{fontSize:"11px",color:T.dim,marginTop:`${SP[1]}px`}}>{av.reason}</div>
-            <div style={{fontSize:"15px",color:T.ink,marginTop:`${SP[3]}px`,lineHeight:1.6}}>{chip.headline}</div>
-            <div style={{fontSize:"13px",color:T.mut,marginTop:`${SP[2]}px`,lineHeight:1.6}}>{chip.detail}</div>
+            {/* Inget varde och ingen jamforelse for ett chip du inte kan spela.
+                Korten visade bade "SLUT - anvant i GW3" OCH "Ger 5.2 xP extra
+                den har omgangen" samtidigt, plus en rad om vilken av de fem
+                kommande omgangarna som vore bast - rad om ett drag som inte
+                finns. Siffran raknas fortfarande (samma kod for alla fyra
+                korten), den pastas bara inte. */}
+            {av.available && <>
+              <div style={{fontSize:"15px",color:T.ink,marginTop:`${SP[3]}px`,lineHeight:1.6}}>{chip.headline}</div>
+              <div style={{fontSize:"13px",color:T.mut,marginTop:`${SP[2]}px`,lineHeight:1.6}}>{chip.detail}</div>
+            </>}
             {chip.notes.map((n,i)=>(
               <div key={i} style={{...c.weekFlag(),marginTop:`${SP[2]}px`,fontSize:"13px"}}>
                 <span style={c.weekDot(T.line)}/><span style={c.weekMuted}>{n}</span>
