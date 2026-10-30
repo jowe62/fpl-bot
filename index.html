@@ -153,8 +153,19 @@ const T = {
   // Canvas & ytor — elevation genom yta, inte skugga
   bg:"#07090C", surface:"#0E1116", card:"#161A21", raised:"#161A21", overlay:"#1E242D",
   line:"#1E242D", lineStrong:"#2A313C",
-  // Text
-  ink:"#F2F5F8", mut:"#A7B0BD", dim:"#6C7684", disabled:"#4E5765",
+  // Text. Varje ton ska klara WCAG AA (4,5:1) mot ALLA fyra ytorna ovan, inte
+  // bara mot bg. Uppmatt 2026-10-30 i DOM:en: gamla dim (#6C7684) gav 4,33:1
+  // mot bg men bara 3,79:1 mot card och 3,39:1 mot overlay, och anvands ned
+  // till 10 px. 102 textnoder foll under AA pa Veckan-fliken ensam.
+  //
+  // dim ligger nu pa det ljusaste som behovs: 4,52:1 mot overlay, som ar den
+  // ljusaste ytan och darmed den svaraste. Hogre an sa och tonen blir
+  // omojlig att skilja fran mut, och trestegshierarkin ink/mut/dim kollapsar
+  // till tva.
+  //
+  // disabled bar den avstangda knappens text pa T.card: 2,39:1 forut, under
+  // aven 3:1-gransen for stor text. Nu 4,54:1.
+  ink:"#F2F5F8", mut:"#A7B0BD", dim:"#818B98", disabled:"#778396",
   // Varumärke — lime = åtgärd, eget lag, primär serie.
   // De tre tonerna är interaktionslägen, inte fria nyanser: hover är LJUSARE
   // (300) och press MÖRKARE (700) än vilotillståndet (500).
@@ -162,7 +173,7 @@ const T = {
   // Semantik — riktning, aldrig dekoration
   good:"#24D07A", bad:"#FF4D5E", warn:"#FFAE33", info:"#2ED8FF", neutral:"#6C7684",
   alt:"#FF2E7E",
-  warnBg:"rgba(255,174,51,.12)",
+  warnBg:"rgba(255,174,51,.12)", badBg:"rgba(255,77,94,.12)",
 };
 
 // Fixtursvårighet 1–5. Trean stannar neutralt grå så en rad medelmatcher
@@ -177,7 +188,10 @@ const POS_TINT = {
   1:{background:"rgba(167,176,189,.12)",color:"#A7B0BD"},
   2:{background:"rgba(46,216,255,.12)", color:"#2ED8FF"},
   3:{background:"rgba(200,255,46,.12)", color:"#C8FF2E"},
-  4:{background:"rgba(255,46,126,.12)", color:"#FF2E7E"},
+  // Ljusare an T.alt (#FF2E7E), som gav 4,44:1 mot sin egen ton och alltsa
+  // foll under AA pa 9 px. #FF5C9A ger 5,15:1. De tre andra tonerna klarade
+  // sig redan (6,41 / 8,01 / 10,88), sa bara den har behovde flyttas.
+  4:{background:"rgba(255,92,154,.12)", color:"#FF5C9A"},
 };
 const POS = {1:"MÅL",2:"FÖR",3:"MIT",4:"ANF"};
 
@@ -1768,7 +1782,11 @@ const c={
     borderTop:`2px solid ${odds?T.brand:"transparent"}`}),
   pFxXp:(v)=>({display:"block",fontFamily:'"IBM Plex Mono",monospace',fontSize:"12px",
     fontWeight:700,color:xpTone(v).fg,fontVariantNumeric:"tabular-nums"}),
-  pFxOpp:{display:"block",fontFamily:'"IBM Plex Mono",monospace',fontSize:"8.5px",color:T.dim,
+  // mut, inte dim: motstandarkoden ligger PA fixturerutans fargton, inte pa
+  // en platt yta. Uppmatt 2026-10-30 gav dim 2,81:1 mot den gula tonen -
+  // filens varsta varde, och pa 8,5 px. mut ger 5,91-6,77:1 mot de fyra
+  // tonerna. Den enda plats dar dim lag pa en tonad bakgrund.
+  pFxOpp:{display:"block",fontFamily:'"IBM Plex Mono",monospace',fontSize:"8.5px",color:T.mut,
     whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:"1px"},
   pPrice:{fontSize:"12px",color:T.mut},
   pXp:(v)=>({fontSize:"14px",fontWeight:700,color:xpColor(v)}),
@@ -3644,7 +3662,10 @@ function FixtureTicker({starters,fm,tb}){
                   return(<td key={g} data-l={"GW"+g} style={{textAlign:"center",padding:"3px 2px"}}>
                     <div style={{background:ton.bg,color:ton.fg,borderRadius:"5px",padding:"3px 5px",fontSize:"11px",fontWeight:"600",display:"inline-block",whiteSpace:"nowrap"}}>
                       <span className="num">{xp.toFixed(1)}</span>
-                      <span style={{color:T.dim,fontWeight:"400",marginLeft:"4px"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</span>
+                      {/* mut, inte dim: koden ligger PA svarighetsbrickans ton.
+                          Uppmatt 2026-10-30 gav dim 3,93:1 dar, mut ger 6,18-7,00:1.
+                          Samma regel som pFxOpp - dim galler platta ytor. */}
+                      <span style={{color:T.mut,fontWeight:"400",marginLeft:"4px"}}>{tb[f.oppId]?.short_name}{f.home?"":" B"}</span>
                     </div>
                   </td>);
                 })}
@@ -3665,7 +3686,11 @@ function InjuryTab({starters,bench}){
   const injured=all.filter(p=>isInjured(p));
   const doubtful=all.filter(p=>!isInjured(p)&&isDoubtful(p));
   const Row=({p,type})=>(
-    <div style={{padding:"8px 10px",background:type==="inj"?"#FAEFEC":T.warnBg,border:`.5px solid ${type==="inj"?T.bad:T.warn}`,borderRadius:"8px",marginBottom:"4px"}}>
+    // badBg, inte "#FAEFEC". Den gamla fargen var en OPAK nastan-vit platta i
+    // en mork app, och radens text ar T.ink. Uppmatt 2026-10-30: namnet lag
+    // pa 1,03:1 mot sin bakgrund - vitt pa vitt, i praktiken osynligt.
+    // Osaker-raden bredvid gjorde redan ratt med T.warnBg; nu gor bada lika.
+    <div style={{padding:"8px 10px",background:type==="inj"?T.badBg:T.warnBg,border:`.5px solid ${type==="inj"?T.bad:T.warn}`,borderRadius:"8px",marginBottom:"4px"}}>
       <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
         <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
         <span style={{flex:1,fontSize:"13px",color:T.ink,fontWeight:"500"}}>{p.web_name}</span>

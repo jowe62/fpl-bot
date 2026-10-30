@@ -535,6 +535,48 @@ vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
 5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
    chances" ur guidens exempel finns inte i API:t.
 
+## Färg och kontrast — regler som är uppmätta
+
+**Varje textton ska klara WCAG AA (4,5:1) mot ALLA fyra ytorna** — `bg`,
+`surface`, `card`, `overlay` — inte bara mot `bg`. Att bara kolla mot `bg` är
+hur felet uppstod: `dim` låg på 4,33:1 där men 3,39:1 mot `overlay`.
+
+**`dim` gäller platta ytor. Ligger texten på en färgton är `mut` den enda
+tillåtna tonen.** Fixturebrickorna, svårighetsbrickorna, positionsmärkena —
+allt med en `rgba(...)`-bakgrund. Uppmätt 2026-10-30: `dim` gav 2,81–4,44:1
+på de tonerna, `mut` ger 5,91–7,00:1.
+
+**Ingen opak ljus färg i paletten.** Appen är mörk och texten är ljus. En
+hårdkodad `#FAEFEC` som bakgrund på skadekorten gav 1,03:1 — vit text på vit
+platta. Vill du ha en tonad varningsyta finns `T.warnBg` och `T.badBg`, båda
+`rgba` över den mörka ytan.
+
+Mätt värden 2026-10-30 (efter fix):
+
+| Ton | bg | surface | card | overlay |
+|---|---|---|---|---|
+| `ink` #F2F5F8 | 18,22 | 17,28 | 15,94 | 14,26 |
+| `mut` #A7B0BD | 9,10 | 8,63 | 7,96 | 7,13 |
+| `dim` #818B98 | 5,77 | 5,48 | 5,05 | **4,52** |
+| `disabled` #778396 | — | — | **4,54** | — |
+
+`dim` ligger medvetet på det **ljusaste som behövs** och inte ljusare: högre
+och tonen går inte att skilja från `mut`, och trestegshierarkin
+`ink`/`mut`/`dim` kollapsar till två.
+
+**Varning:** `T.neutral` står kvar på gamla `#6C7684` och är oanvänd. Används
+den någonsin återinförs felet — byt den då, mät inte om.
+
+### Så mäter du kontrast
+
+Läsa koden räcker inte: bakgrunden är ofta flera `rgba`-lager, och den
+verkliga färgen finns bara i DOM:en. Kör ett skript i sidan som för varje
+textnod går uppåt i trädet, komposterar alfa-lagren till en opak färg, och
+jämför mot AA-tröskeln för nodens **egen** `fontSize` och `fontWeight`
+(4,5:1, eller 3:1 vid ≥24 px eller ≥18,66 px fet). Svep alla tio flikarna och
+**båda lagen** — Johns har säljpriser, Richards inte, och de renderar olika
+grenar. Så hittades fyra fel som granskningen hade missat.
+
 ## Utseende — GlennOS designsystem v1.4
 Källa: `FPL Design System.pdf` på Johns skrivbord. Läs den med poppler
 (`pdftotext -layout` för text, `pdftoppm -png -r 110 -y N -H M` för utsnitt) —
