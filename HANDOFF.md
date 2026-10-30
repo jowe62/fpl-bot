@@ -350,6 +350,26 @@ plus halva vinsten, så dagspris **överskattar** vad man har råd med. Uppmätt
 GW8-truppen: 1,8m fel fördelat på sju spelare. Det publika picks-anropet bär
 inte fältet alls, så bokmärkesknappen är enda källan.
 
+## Kaptensregeln — och gränsen för "läs ur API:t"
+
+**Vem som helst i elvan far vara kapten, aven malvakten.** Premier Leagues
+egen text: *"You must also choose a captain and a vice-captain from the
+players in your line-up"* — ingen positionsbegränsning. Verifierat
+2026-10-30 mot premierleague.com/en/news/2174899.
+
+**Det går inte att läsa ur API:t.** `bootstrap.game_settings` bär
+`squad_squadsize`, `squad_team_limit`, `sys_vice_captain_enabled` med flera,
+men **inget** fält om vilka positioner som får bära bandet. Leta inte igen —
+regeln finns bara i regeltexten, och då är rätt sak att citera källan i en
+kommentar, inte att gissa ett filter.
+
+Fram till 2026-10-30 filtrerade tre av fyra anropsställen bort målvakten,
+medan `planGwVarde` inte gjorde det. Samma modell svarade alltså olika
+beroende på vilken vy som frågade. Uppmätt på 50 trupper ur topp 50:
+kaptensvalet ändras i **noll** av dem, och bästa målvakt ligger 1,59 xP under
+bästa utespelare. Det som ändras är att Kapten-flikens topp fem rankar hela
+elvan.
+
 ## Regler som läses ur API:t, inte hårdkodas
 - **Formation:** `element_types[].squad_min_play` / `squad_max_play`.
   `bestXI()` är uttömmande över alla lagliga formationer — bevisat optimalt.

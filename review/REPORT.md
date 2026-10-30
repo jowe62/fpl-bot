@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`) |
-| **Kvar** | B11, B12, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`), **B11** |
+| **Kvar** | B12, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
@@ -89,7 +89,7 @@ Fragmentet når aldrig en server.
 | ~~B8~~ | Säkerhet | ~~Medel~~ **KLAR** `26fb616` | `/api/fpl` var en öppen proxy som vem som helst kunde använda. | Bevisat mot **den skarpa deployen** 2026-10-30, inte bara läst: `/leagues-classic/314/standings/`, `/element-summary/411/`, `/event-status/` och `/entry/1/` gav alla **200** från min maskin — sökvägar boten aldrig efterfrågar. `ACAO: *` bekräftad i svaret. Att värden **inte** gick att byta prövades också i stället för att antas: tio försök (`//evil.example/x`, `https://evil.example/`, `@evil.example/`, `/../../..`, `..%2F`, backslash, tabb, fragment) gav alla host `fantasy.premierleague.com`, eftersom basen slutar på `/api` och allt som följer därmed är en sökväg. **Kvotmissbruk, inte SSRF.** | Vitlista med botens sju sökvägar; `ACAO` borttagen helt eftersom boten är samma origin. | **Ja**, kört: handlern mot alla vägar, plus hela boten genom den |
 | ~~B9~~ | Kod | ~~Låg~~ **KLAR** `5627ae6` | Död kod. | Svepte hela babel-blocket i stället för att bara kontrollera de två rapporten nämnde: **150 deklarationer på toppnivå, 2 utan någon användning** — precis `PlayerChip` och `POS_SV`, så rapporten hade rätt och var uttömmande på den punkten. Samma svep över paletten hittade **fem oanvända fält**: `raised` och `overlay` (dubbletter av `card` respektive `line`, samma hexvärde), `neutral` (låst på gamla dim `#6C7684`, 3,79:1 — en fälla jag flaggade i B5), samt `brandHover`/`brandPress`. | Ta bort de två funktionerna och de tre dubblett-/fällefälten. `brandHover`/`brandPress` **behålls**: de har egna värden och en dokumenterad roll som interaktionslägen, till skillnad från dubbletterna. | **Ja**, svep + körd app före/efter |
 | ~~B10~~ | UX / språk | ~~Låg~~ **KLAR** `af900cf` | Uppräkningar blir "A och B och C". | Reproducerat i webbläsaren, inte bara läst: med tre inbytta gav koden **"Byt in Kinsky och Guéhi och N.Williams"** och **"Bänka Raya och Gudmundsson och N.Williams."** — samma mönster som granskningens skärmbild. Varken Johns eller Richards trupp hade tre just nu, så läget tvingades fram i en serverad kopia. **Samma svep hittade motsatt fel:** `join(", ")` mitt i en mening gav "Bänken består av Kinsky, Shaw, Janelt, Szoboszlai." | Hjälpfunktion `lista()`; använd i de fyra meningarna, inte i datalistor. | **Ja**, kört vid 1–4 namn |
-| **B11** | Modell | Låg | Triple Captain utesluter målvakter ur kaptensvalet. | `index.html:1181`: `starters.filter(p=>p.element_type!==1)`. FPL tillåter kapten på målvakt. Filtret är ett antagande, inte en regel läst ur API:t, vilket projektets egna regler säger att man inte ska göra. | Ta bort filtret. En målvakt vinner ändå aldrig i praktiken, så beteendet ändras inte — men antagandet försvinner. | **Ja**, läst |
+| ~~B11~~ | Modell | ~~Låg~~ **KLAR** | Triple Captain uteslöt målvakter ur kaptensvalet. **Och filtret satt på tre ställen, inte ett — medan ett fjärde redan saknade det.** | Regeln verifierad mot premierleague.com: *"You must also choose a captain and a vice-captain from the players in your line-up"* — ingen positionsbegränsning. `bootstrap.game_settings` bär **inget** kaptensfält alls, så det gick inte att läsa ur API:t; antagandet var alltså oundvikligt att upptäcka, men inte att behålla. `planGwVarde` anropade redan `armband(xi.xi, …)` **utan** filter, så modellen svarade olika beroende på vilken vy som frågade. | Ta bort filtret på alla tre ställena. | **Ja**, mätt på 50 riktiga trupper |
 | **B12** | UX | Låg | Chips-fliken räknar fram och visar ett värde för ett chip som är förbrukat. | Skärmbilden av Chips: Triple Captain visar "Ger 4.5 xP extra den här omgången" samtidigt som den är märkt SLUT och "använt i GW3". Koden sätter `available:false` (rad 1143) men renderar ändå värdet. | Visa inget värde när `available` är falskt. |  **Ja**, skärmbild + kod |
 | ~~B13~~ | UX | ~~Låg~~ **KLAR** `9baf325` | Ranken läses som tre separata nyckeltal. | Uppmätt i DOM:en med `Range.getBoundingClientRect`, tecken för tecken: IBM Plex Mono är monospace, så **varje** glyf vid 40 px är 23,20 px bred — inklusive U+00A0. Avståndet mellan två **skilda** nyckeltal är 24 px. **Skillnad 0,79 px.** Rapportens korrigering stämde: talet radbryter inte, separatorerna är hårda mellanslag (teckenkod 160 avläst). Samma mätning visade att **`23t 3m`, nyckeltalet från B6, hade exakt samma fel** (23,21 px). | U+2009 i stället för U+00A0 i båda. | **Ja**, mätt före och efter, desktop och mobil |
 | **B14** | Kod | Låg | "av fyra bänkspelare" är hårdkodat. | `index.html:875`. Bänken är alltid fyra i FPL, så det stämmer idag. Det är en konstant som borde vara `r.benchNames.length`. | Härled talet. | **Ja**, läst |
@@ -102,7 +102,7 @@ Fragmentet når aldrig en server.
 | Vy | Påstår | Stämmer det? |
 |---|---|---|
 | Veckan | Kaptensråd, laguppställning, transfer, flaggor | Ja. Kaptensvärdet 4,5 xP reproducerat i riggen. Vice (**B2**) och uppräkningarna (**B10**) är åtgärdade |
-| Kapten | Rankning på xP-modell | Ja, ren argmax på `estimateXp`. Ingen vice-rankning (**B2**) |
+| Kapten | Rankning på xP-modell | Ja. Vice ingår sedan **B2**, och hela elvan rankas sedan **B11** |
 | Byten | Femveckorsplan plus tre enskilda alternativ | Ja. Planen och alternativen räknar **olika** saker, vilket framgår av rubrikerna. Låsningen (**B4**) är åtgärdad |
 | Fixtures | xP per omgång, färg relativt spelarens eget snitt | Ja, matchar riggen |
 | Chips | Vad varje chip är värt | Bench Boost (**B1**) och Free Hits döda horisontvärde (**B3**) är åtgärdade. Kvar: förbrukade chip visar värde (**B12**) |
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B10 och B13
+## Vad som gjordes med B1–B11 och B13
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -360,6 +360,36 @@ en minut" i Facit.
 **Datalistor lämnas i fred** — `GW9 ARS · GW10 HUL`, `Utan odds, körs på xG:
 BHA, FUL`, nyhetsraden och Eliten-listan är uppställningar, inte meningar, och
 har sin egen avskiljare. Den gränsen står i koden.
+
+**B11.** Filtret `element_type!==1` satt i Triple Captain, WeekTab och
+CaptainTab — men **inte** i `planGwVarde`, som planeraren använder. Fyra
+anropsställen, två olika regler. Nu har alla fyra samma.
+
+Regeln är läst ur källan, inte minnet: premierleague.com säger *"choose a
+captain and a vice-captain from the players in your line-up"*, utan
+positionskrav. `bootstrap.game_settings` innehåller inget kaptensfält, så
+API:t kunde inte avgöra saken — vilket är precis varför antagandet smugit in.
+
+**Mätt på 50 trupper ur topp 50 i totalligan:**
+
+| | |
+|---|---|
+| kaptensvalet ändras | **0 av 50** |
+| målvakt vald till kapten | 0 |
+| målvakt vald till vice | 0 |
+| största skillnad i väntevärde | **0,0000 xP** |
+
+Bästa målvakt i hela ligan ligger 1,59 xP under bästa utespelare, så
+marginalen är inte knapp.
+
+**En synlig följd finns dock, och rapporten nämnde den inte:** Kapten-flikens
+topp fem rankar nu hela elvan. I riggens körning tog målvakten femteplatsen i
+7 av 50 trupper. I den levande appen, med aktuella odds, gör han det inte för
+Johns trupp — listan är oförändrad där. Det är rätt beteende: fliken säger
+"rankad på xP-modell", och då ska den visa vad modellen säger.
+
+Triple Captain-värdet och bandet är oförändrade: Haaland/Rogers, samma siffra
+före och efter.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade

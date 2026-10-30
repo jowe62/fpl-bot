@@ -1388,7 +1388,11 @@ function chipGainsOverHorizon(starters, bench, fm, gw, useOdds){
     // alltså ETT extra varv av den bästa spelaren.
     // Triple Captain ger ETT extra varv utover dubbleringen, alltsa exakt samma
     // vantevarde som bandet i sig - och vice arver chipet om kaptenen uteblir.
-    const tc=armband(starters.filter(p=>p.element_type!==1),xp)?.extra ?? 0;
+    // Ingen positionsfiltrering. FPL:s regel ar "valj kapten och vice bland
+    // spelarna i din elva" - ingen begransning pa position (verifierat mot
+    // premierleague.com 2026-10-30; bootstrap.game_settings bar inget
+    // kaptensfalt alls, sa det gick inte att lasa ur API:t).
+    const tc=armband(starters,xp)?.extra ?? 0;
     // Free Hit: bara ANTALET startspelare utan match. Nagon xP-summa raknas
     // INTE har. Den gamla summan matte blanks mot `gw` i stallet for `g`, och
     // eftersom en blank spelare per definition saknar match i sin egen omgang
@@ -2295,8 +2299,10 @@ function TransferPlan({starters,bench,bs,fm,tb,bank,gw,freeTransfers}){
 }
 
 function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab}){
+  // Malvakten far vara med - se kommentaren vid Triple Captain. Uppmatt pa
+  // 50 trupper ur topp 50: kaptensvalet andras i noll av dem.
   const band = useMemo(()=>armband(
-    starters.filter(p=>p.element_type!==1), p=>estimateXp(p,fm).xp),[starters,fm]);
+    starters, p=>estimateXp(p,fm).xp),[starters,fm]);
   const cap = band?.kapten;
   const vice = band?.vice;
   const kanBytas = harSaljpriser([...starters,...bench]);
@@ -3574,7 +3580,12 @@ function ChartsTab({starters,bench,fm,tb,bs,history}){
 }
 
 function CaptainTab({starters,fm,tb}){
-  const kand=starters.filter(p=>p.element_type!==1);
+  // Hela elvan ar kandidater. Rankningen sager "rankad pa xP-modell", och da
+  // ska den visa vad modellen faktiskt sager - inte en delmangd som valts av
+  // ett antagande. Uppmatt: malvakten tar en plats i topp fem i 7 av 50
+  // riktiga trupper, och vinner aldrig forstaplatsen (basta malvakt i ligan
+  // 3,32 xP mot basta utespelare 4,91).
+  const kand=starters;
   const band=armband(kand,p=>estimateXp(p,fm).xp);
   const ranked=[...kand].map(p=>({...p,_xp:estimateXp(p,fm).xp})).sort((a,b)=>b._xp-a._xp).slice(0,5);
   return(
