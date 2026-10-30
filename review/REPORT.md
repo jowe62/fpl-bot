@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`) |
-| **Kvar** | B8, B9, B10, B11, B12, B13, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** |
+| **Kvar** | B9, B10, B11, B12, B13, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
 Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2,
-B3–B7 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
+B3–B7 har rört `index.html`, B8 `api/fpl.js`. Raden här påstod tidigare att inget ändrats;
 det var sant när rapporten skrevs och fel därefter.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
@@ -86,7 +86,7 @@ Fragmentet når aldrig en server.
 | ~~B5~~ | Tillgänglighet | ~~Medel~~ **KLAR** `ceb996b` | `T.dim` och `T.disabled` klarar inte WCAG AA. **Mätningen hittade fyra fel till som rapporten missade — ett av dem allvarligt: skadekorten är vit text på vit platta.** | Mätt i DOM:en, alla tio flikar och båda lagen: varje textnod, dess verkliga bakgrund (alfa-komposterad uppåt), storlek och vikt, mot AA-tröskeln. **102 fall på Veckan ensam.** Rapportens siffror stämde exakt (dim 3,79:1 mot card, 4,33:1 mot bg; disabled 2,39:1). Nytt: (a) `InjuryTab` sätter en **opak** `#FAEFEC` som bakgrund i en mörk app — namnet låg på **1,03:1**, i praktiken osynligt; (b) `dim` på fixturebrickornas färgtoner, 2,81:1 vid 8,5 px i `pFxOpp` och 3,93:1 i `FixtureTicker` — filens värsta värden; (c) `POS_TINT[4]` (ANF) 4,44:1 vid 9 px. Rapportens egen fix `#7C8694` hade **inte räckt**: 4,23:1 mot `overlay`. | `dim`→`#818B98`, `disabled`→`#778396`, `dim`→`mut` på de två tonade brickorna, ANF→`#FF5C9A`, och `#FAEFEC`→ny `T.badBg`. | **Ja**, mätt i webbläsaren före och efter |
 | ~~B6~~ | UX | ~~Medel~~ **KLAR** `790692f` | Deadline visades aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**; fältet läses bara i `api/odds.js`. Bekräftat mot **live** bootstrap 2026-10-30: `deadline_time_epoch` 1793444400 = `deadline_time` 2026-10-31T11:00:00Z, alltså GW9-deadline kl 12:00 svensk tid — 23½ timme bort och ingenstans i gränssnittet. | Nedräkning som nyckeltal intill NÄSTA OMGÅNG, plus den absoluta tidpunkten i huvudraden. | **Ja**, kört i webbläsaren: alla tre lägen plus tickandet |
 | ~~B7~~ | Kod | ~~Medel~~ **KLAR** `a07a992` | `useEffect` för iframe-höjd saknade beroendelista och rev upp en `ResizeObserver` vid varje omrendering. **B6 gjorde den värre: churnen slutade bero på att någon klickar.** | Mätt i en **riktig iframe** (effekten returnerar tidigt på toppnivå, så den går inte att mäta där) med en räknare runt `ResizeObserver`. Före: fem flikbyten → **4 nya observers**, och 60 sekunders helt stillastående sida → **2 till**, alltså ~2 880 rivna observers per dygn på en orörd flik sedan `790692f`. Varje cykel skickade dessutom två hojdmeddelanden med **oförändrad** höjd. | `},[])`. Blocket stänger inte om någon state eller prop, så listan kan inte ge en inaktuell closure. | **Ja**, mätt i iframe före och efter |
-| **B8** | Säkerhet | Medel | `/api/fpl` är en öppen proxy som vem som helst kan använda. | `api/fpl.js:3` sätter ihop `path` från query utan validering, och rad 10 sätter `Access-Control-Allow-Origin: *`. Värden är hårdkodad i strängen, så det går **inte** att nå en annan domän — men vem som helst kan använda kontots Vercel-funktion som gratis FPL-proxy. | Tillåt bara en lista av kända sökvägsmönster, och begränsa `ACAO` till den egna domänen. | **Ja**, läst. Att värden inte går att byta är verifierat genom att basen är en literal |
+| ~~B8~~ | Säkerhet | ~~Medel~~ **KLAR** | `/api/fpl` var en öppen proxy som vem som helst kunde använda. | Bevisat mot **den skarpa deployen** 2026-10-30, inte bara läst: `/leagues-classic/314/standings/`, `/element-summary/411/`, `/event-status/` och `/entry/1/` gav alla **200** från min maskin — sökvägar boten aldrig efterfrågar. `ACAO: *` bekräftad i svaret. Att värden **inte** gick att byta prövades också i stället för att antas: tio försök (`//evil.example/x`, `https://evil.example/`, `@evil.example/`, `/../../..`, `..%2F`, backslash, tabb, fragment) gav alla host `fantasy.premierleague.com`, eftersom basen slutar på `/api` och allt som följer därmed är en sökväg. **Kvotmissbruk, inte SSRF.** | Vitlista med botens sju sökvägar; `ACAO` borttagen helt eftersom boten är samma origin. | **Ja**, kört: handlern mot alla vägar, plus hela boten genom den |
 | **B9** | Kod | Låg | Död kod. | `PlayerChip` definieras på rad 1775 och förekommer ingen annanstans. `POS_SV` definieras på rad 194 och används aldrig. Båda verifierade med ordgräns-grep över hela filen. | Ta bort. | **Ja**, grep |
 | **B10** | UX / språk | Låg | Uppräkningar blir "A och B och C" i stället för "A, B och C". | `index.html:2307` och `2313`: `.join(" och ")`. Syns i skärmbilden av Veckan: "Byt in Kinsky och N.Williams och McBurnie". | Hjälpfunktion som sätter komma mellan alla utom de två sista. | **Ja**, skärmbild + kod |
 | **B11** | Modell | Låg | Triple Captain utesluter målvakter ur kaptensvalet. | `index.html:1181`: `starters.filter(p=>p.element_type!==1)`. FPL tillåter kapten på målvakt. Filtret är ett antagande, inte en regel läst ur API:t, vilket projektets egna regler säger att man inte ska göra. | Ta bort filtret. En målvakt vinner ändå aldrig i praktiken, så beteendet ändras inte — men antagandet försvinner. | **Ja**, läst |
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B7
+## Vad som gjordes med B1–B8
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -242,6 +242,36 @@ inaktuell closure, och en observer som skapas en gång kan vara död. Blocket
 stänger inte om någon state eller prop. Och efter fixen gav en verklig
 storleksändring av iframen fyra nya höjdmeddelanden med fortfarande bara en
 observer — den lever.
+
+**B8.** `api/fpl.js` har en vitlista med exakt de sju sökvägar boten
+begär, och inget mer. Allt annat ger 400 innan något anrop görs mot FPL.
+
+**`Access-Control-Allow-Origin` är borttagen, inte omskriven.** Rapporten
+föreslog att begränsa den till egen domän, men boten hämtar `/api/fpl`
+relativt och ligger alltså på samma origin som funktionen — även inne i
+iframen på wennerqvist.design, vars dokument är vercel-adressen. Samma origin
+frågar aldrig efter CORS, så headern fyllde ingen funktion för boten och
+öppnade den bara för alla andra. Inget i repot anropar vägen från en annan
+domän; skulle något utanför göra det slutar det fungera högljutt.
+
+Kört mot den riktiga handlern: **7 av 7** av botens vägar ger 200 med äkta
+FPL-data, **16 av 16** andra nekas (bland dem de fyra som bevisligen gick
+igenom mot skarpa deployen), och fyra kantfall på själva parametern nekas —
+inklusive `?path=a&path=b`, som Vercel ger som en array och där det vore en
+tyst gissning att plocka första.
+
+Sedan hela boten genom den: sidan laddar, **9 släppta och 0 nekade** av
+botens egna anrop (de 7 vid laddning plus två egna stickprov), alla tio
+flikar klickade utan ett enda extra anrop, konsolen ren.
+
+**Sidofynd, inte åtgärdat:** koden sätter `Cache-Control: s-maxage=60`, men
+skarpa deployen svarar `public, max-age=0, must-revalidate` med
+`x-vercel-cache: MISS`. CDN-cachen som HANDOFF beskriver sker alltså inte på
+den här endpointen. Orsaken är inte utredd — det kräver en deploy att pröva.
+Noterat i HANDOFF.md som öppen tråd.
+
+**B15 ligger kvar i samma fil** och rörs inte här: felsvaren saknar fortfarande
+CORS-header (nu konsekvent, eftersom ingen sätts) och returnerar `e.message`.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade

@@ -535,6 +535,39 @@ vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
 5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
    chances" ur guidens exempel finns inte i API:t.
 
+## /api/fpl — vitlistad, inte fri
+
+Proxyn släpper igenom **exakt de sju sökvägar boten begär** och inget annat:
+
+```
+/bootstrap-static/        /fixtures/
+/entry/{id}/              /entry/{id}/history/
+/entry/{id}/transfers/    /entry/{id}/event/{gw}/picks/
+/event/{gw}/live/
+```
+
+Lägger du till ett `fplFetch` i `index.html` **måste** mönstret in i
+`TILLATNA` i `api/fpl.js`, annars svarar proxyn 400. Det är meningen: en ny
+väg ska synas direkt i stället för att bli en ny lucka.
+
+Fram till 2026-10-30 fanns ingen kontroll alls. Uppmätt mot skarpa deployen
+samma dag: `/leagues-classic/314/standings/`, `/element-summary/411/`,
+`/event-status/` och `/entry/1/` gav alla 200 — en gratis FPL-proxy på
+kontots kvot, med botens IP-rykte som insats.
+
+**Värden gick däremot aldrig att byta**, vilket prövades: tio försök
+(`//evil.example/x`, `https://evil.example/`, `@evil.example/`, `/../../..`,
+`..%2F`, backslash, tabb, fragment) gav alla host
+`fantasy.premierleague.com`, eftersom basen slutar på `/api` och allt som
+följer därmed är en sökväg. Det var kvotmissbruk, inte SSRF — återutred inte
+det som SSRF.
+
+**Ingen `Access-Control-Allow-Origin`.** Boten hämtar `/api/fpl` relativt och
+är samma origin som funktionen, även i iframen (iframens dokument är
+vercel-adressen). Samma origin frågar aldrig efter CORS. Sätt inte tillbaka
+en stjärna; behöver något på en annan domän anropa vägen är svaret en
+namngiven domän.
+
 ## Iframe-höjden — och hur man mäter den
 
 Boten ligger i en `<iframe>` på wennerqvist.design och rapporterar sin egen
@@ -832,6 +865,15 @@ bara räknade på odds-delarna förutsade att det skulle göra det; med hela mod
 du påstår något om rankningen.
 
 ## Öppna trådar / TODO
+
+0. **CDN-cachen på `/api/fpl` verkar inte ske.** Koden sätter
+   `Cache-Control: s-maxage=60`, men skarpa deployen svarade 2026-10-30
+   `public, max-age=0, must-revalidate` med `x-vercel-cache: MISS`.
+   Mätt med `curl -D-` mot `fpl-bot-lovat.vercel.app`. **Orsaken är inte
+   utredd** — det kräver en deploy att pröva, så gissa inte. Konsekvensen är
+   att "CDN-cache via Cache-Control" i avsnittet om cacheskikt kan vara ett
+   påstående som inte stämmer för den här endpointen; kontrollera innan du
+   litar på den.
 1. **Besvarad 2026-10-29: nej, ingen av böckerna bjuder clean sheet.** Varken
    Unibets 48 marknader eller Paddy Powers 21 innehåller `Clean Sheet Home` /
    `Clean Sheet Away`, trots att namnen är exakt rätt enligt `/markets`.
