@@ -42,6 +42,7 @@ ABSOLUTA REGLER:
 
 VAD FÄLTEN BETYDER — läs noga. Feltolkade fält är det vanligaste felet i den här uppgiften:
 - forvantadePoang: spelarens förväntade poäng i omgången. Det är INTE en bonus, INTE ett tillägg och INTE en skillnad mot något annat.
+- viceKaptenNamn: vice kapten. Spelar kaptenen inte en enda minut går bandet vidare till vice, och då är det HAN som räknas dubbelt i stället. Skriv aldrig att vice ger poäng utöver kaptenen — bara en av dem dubblas, aldrig båda.
 - Kaptenen räknas dubbelt i FPL. Kaptenens forvantadePoang är poängen före dubbleringen. Dubbla den aldrig själv, och skriv inte ut något om "före dubbleringen" — det är en instruktion till dig, inte information till läsaren.
 - templateOverlapp.dinaSpelareIMallelvan: hur många av dina elva startspelare som också finns i mallelvan, alltså den elva som flest managers äger. Det handlar om spelare, aldrig om antal andra lag.
 - banken: din avbytarbänk. spelbara = hur många som faktiskt spelar i omgången, spelarInte = hur många som inte gör det.

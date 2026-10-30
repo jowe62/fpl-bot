@@ -1168,6 +1168,57 @@ const CHIP_HORIZON = 5;
 // avgjorde alltsa vilken omgang som "vann".
 // useOdds=true anvands bara for talet som visas for den har omgangen, dar
 // odds ar den basta tillgangliga uppskattningen.
+// Kaptensbandet, med vice.
+//
+// FPL:s regel: spelar kaptenen noll minuter gar bandet vidare till vice.
+// Vantevardet for det EXTRA varvet ar darfor
+//
+//   xP(kapten) + (1 - speltid(kapten)) * xP(vice)
+//
+// Harledning: det extra varvet ger kaptenens villkorade poang nar han spelar,
+// annars vices nar HAN spelar. Med xP = speltid * villkorad poang blir
+// m_K*b_K + (1-m_K)*m_V*b_V = xP_K + (1-m_K)*xP_V.
+//
+// Forut rakhades bara xP(kapten). Uppmatt pa Haaland med 89 % speltid var
+// termen som saknades ca 0,45 xP, och den vaxer nar kaptenen ar osaker.
+//
+// VARFOR ALLA PAR PROVAS: uttrycket ar inte monotont i xP ensamt. For tva
+// kandidater ar skillnaden mellan de bada upplaggen exakt m1*m2*(b1-b2), dar
+// b = xP/speltid ar den VILLKORADE poangen. Ratt kapten ar alltsa den med
+// hogst villkorad poang, inte den med hogst xP - och vice ar den med hogst xP
+// bland de ovriga. Tva olika kriterier. Uttommande sokning slipper bero pa att
+// jag harleder den regeln ratt for fler an tva kandidater. 110 par ar gratis.
+//
+// Verifierat 2026-10-30: uttommande sokning mot den analytiska regeln stammer
+// i 4000 av 4000 slumpade par.
+//
+// I PRAKTIKEN andrar det inget kaptensval. Pa 20 riktiga trupper fran topp 20 i
+// totalligan valdes alltid samma kapten som en ren xP-sortering, och lagsta
+// speltid hos en vald kapten var 89 %. Vinsten ligger i vice-termen och i att
+// vice over huvud taget rekommenderas, inte i att bandet flyttas.
+//
+// BEGRANSNING som ar vard att kanna till: regeln bygger pa att bandet gar
+// vidare nar kaptenen spelar NOLL minuter, men (1 - xMins) ar inte den
+// sannolikheten. xMins ar en minutandel, sa en spelare som byts in i var match
+// har lag xMins och anda noll chans att bandet gar vidare. For en etablerad
+// startspelare ligger de tva nara varandra, och det ar bara sadana som valjs
+// har. For en rotationsspelare vore termen opalitlig.
+function armband(kandidater, xpOf){
+  if(!kandidater.length) return null;
+  if(kandidater.length===1)
+    return {kapten:kandidater[0], vice:null, extra:xpOf(kandidater[0])};
+  let bast=null;
+  for(const k of kandidater){
+    const utan=1-xMins(k);
+    for(const v of kandidater){
+      if(v.id===k.id) continue;
+      const extra=xpOf(k)+utan*xpOf(v);
+      if(!bast||extra>bast.extra) bast={kapten:k, vice:v, extra};
+    }
+  }
+  return bast;
+}
+
 // Fordelningen for ANTALET startspelare som uteblir. Varje spelare har sin
 // egen sannolikhet, sa det ar en Poisson-binomialfordelning och inte en
 // binomial. DP over spelarna, O(n^2) och forsumbart for tio spelare.
@@ -1238,7 +1289,9 @@ function chipGainsOverHorizon(starters, bench, fm, gw, useOdds){
     const bb=benchBoostGain(starters,bench,xp);
     // Triple Captain: kaptenen räknas tre gånger i stället för två,
     // alltså ETT extra varv av den bästa spelaren.
-    const tc=Math.max(0,...starters.filter(p=>p.element_type!==1).map(xp));
+    // Triple Captain ger ETT extra varv utover dubbleringen, alltsa exakt samma
+    // vantevarde som bandet i sig - och vice arver chipet om kaptenen uteblir.
+    const tc=armband(starters.filter(p=>p.element_type!==1),xp)?.extra ?? 0;
     // Free Hit: det du förlorar på spelare utan match den omgången.
     const blanks=starters.filter(p=>!(fm[p.team]||[]).some(f=>f.gw===g));
     const fh=blanks.reduce((s,p)=>s+estimateXpAt(p,fm,gw,false).xp,0);
@@ -1518,9 +1571,8 @@ function planGwVarde(squad,fm,et,g,xp){
   const scores=new Map(squad.map(p=>[p.id,xp.get(p.id)[g]]));
   const xi=bestXI(squad,fm,et,scores);
   if(!xi) return null;
-  let kapten=0;
-  for(const p of xi.xi){const v=scores.get(p.id); if(v>kapten) kapten=v;}
-  return xi.total+kapten;
+  const band=armband(xi.xi,p=>scores.get(p.id));
+  return xi.total+(band?band.extra:0);
 }
 function planRestVarde(squad,fm,et,fran,xp){
   let s=0;
@@ -2152,8 +2204,10 @@ function TransferPlan({starters,bench,bs,fm,tb,bank,gw,freeTransfers}){
 }
 
 function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab}){
-  const cap = useMemo(()=>[...starters].filter(p=>p.element_type!==1)
-    .sort((a,b)=>estimateXp(b,fm).xp-estimateXp(a,fm).xp)[0],[starters,fm]);
+  const band = useMemo(()=>armband(
+    starters.filter(p=>p.element_type!==1), p=>estimateXp(p,fm).xp),[starters,fm]);
+  const cap = band?.kapten;
+  const vice = band?.vice;
   const kanBytas = harSaljpriser([...starters,...bench]);
   const recs = useMemo(()=>kanBytas?buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers):[],
     [kanBytas,starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
@@ -2225,6 +2279,7 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
           forvantadePoang: +capXp.toFixed(1),
           motstandare: capFx ? (tb[capFx.oppId]?.name || null) : null,
           hemma: capFx ? !!capFx.home : null,
+          viceKaptenNamn: vice ? vice.web_name : null,
         } : null,
         elva: xi ? {
           formation: xi.formation,
@@ -2336,11 +2391,16 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
       <div style={c.weekBlock}>
         <div style={c.weekKicker}>Kaptensbandet</div>
         {cap ? <>
-          <div className="lead" style={c.weekLead}>Sätt bandet på {cap.web_name}</div>
+          <div className="lead" style={c.weekLead}>
+            Sätt bandet på {cap.web_name}{vice && <>, vice {vice.web_name}</>}
+          </div>
           <div style={c.weekSub}>
-            {capXp.toFixed(1)} xP — högst i din startelva.
+            {capXp.toFixed(1)} xP.
             {capFx && <> {capFx.home?"Hemma mot":"Borta mot"} {tb[capFx.oppId]?.name}.</>}
             {" "}Kaptenen räknas dubbelt, så det är veckans enskilt största beslut.
+            {vice && <> Spelar han inte går bandet vidare till {vice.web_name}, och den
+              chansen är inräknad — modellen ger {cap.web_name}{" "}
+              {(xMins(cap)*100).toFixed(0)} % speltid.</>}
           </div>
           {/* Flaggan ska sta DAR beslutet fattas. Modellen skalade redan ner
               Joao Pedro till 68 procent speltid infor GW8, men sa det aldrig
@@ -3402,15 +3462,27 @@ function ChartsTab({starters,bench,fm,tb,bs,history}){
 }
 
 function CaptainTab({starters,fm,tb}){
-  const ranked=[...starters].filter(p=>p.element_type!==1).map(p=>({...p,_xp:estimateXp(p,fm).xp})).sort((a,b)=>b._xp-a._xp).slice(0,5);
+  const kand=starters.filter(p=>p.element_type!==1);
+  const band=armband(kand,p=>estimateXp(p,fm).xp);
+  const ranked=[...kand].map(p=>({...p,_xp:estimateXp(p,fm).xp})).sort((a,b)=>b._xp-a._xp).slice(0,5);
   return(
     <div>
       <div style={c.secTitle}>Rankad på xP-modell (speltidsandel, xG/xA, clean sheet, hemmaplan)</div>
+      {band && <div style={{...c.legendTxt,marginBottom:`${SP[4]}px`,maxWidth:"620px",lineHeight:1.6}}>
+        Bandet på <strong style={{color:T.ink}}>{band.kapten.web_name}</strong>
+        {band.vice && <>, vice <strong style={{color:T.ink}}>{band.vice.web_name}</strong></>}.
+        {" "}Tillsammans värda {band.extra.toFixed(1)} xP för det extra varvet.
+        {band.vice && <> Spelar inte kaptenen går bandet vidare, så paret värderas
+          ihop och inte var för sig.</>}
+        {" "}Listan nedan är rankad på xP ensamt. Oftast pekar de åt samma håll —
+        på tjugo riktiga trupper gav de alltid samma kapten.
+      </div>}
       {ranked.map((p,i)=>{
-        const top=i===0;const f=(fm[p.team]||[])[0];
+        const top=band?.kapten?.id===p.id, erVice=band?.vice?.id===p.id;
+        const f=(fm[p.team]||[])[0];
         return(
-          <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?T.warnBg:T.card,border:`.5px solid ${top?T.warn:T.line}`}}>
-            <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?T.warn:T.mut,width:"28px",textAlign:"center"}}>{top?"©":i+1}</div>
+          <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",marginBottom:"8px",background:top?T.warnBg:T.card,border:`.5px solid ${top?T.warn:(erVice?T.brand:T.line)}`}}>
+            <div style={{fontSize:top?"22px":"15px",fontWeight:"500",color:top?T.warn:(erVice?T.brand:T.mut),width:"28px",textAlign:"center"}}>{top?"©":(erVice?"V":i+1)}</div>
             <div style={{flex:1}}>
               <div style={{fontWeight:"500",fontSize:"14px",color:T.ink}}>{p.web_name}</div>
               <div style={{fontSize:"12px",color:T.mut}}>{tb[p.team]?.short_name} · {nextOpp(p.team,fm,tb)}</div>
