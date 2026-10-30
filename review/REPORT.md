@@ -1,5 +1,14 @@
 # GLENN/OS — granskning 2026-10-30
 
+## Status
+
+| | |
+|---|---|
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`) |
+| **Kvar** | B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15 |
+
+Ordningen är Johns. Han plockar ID, ett i taget.
+
 Inga filer i appen ändrade. Detta är enbart utredning.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
@@ -68,8 +77,8 @@ Fragmentet når aldrig en server.
 
 | ID | Område | Allvar | Problem | Bevis | Föreslagen fix | Verifierad? |
 |---|---|---|---|---|---|---|
-| **B1** | Bugg / modell | **Kritisk** | Bench Boost överskattas med 40–96 %. Chipets värde sätts till hela bänkens xP, men utan chipet ger auto-bytena redan en stor del av den poängen när en startspelare uteblir. | `index.html:1178` `const bb=bench.reduce((s,p)=>s+xp(p),0)` med kommentaren "alltså exakt bänkens xP". Kört: frisk trupp bb 13,53 xP, förväntat antal uteblivna startspelare 1,40, bänkspelares xP när han spelar 3,82 → auto-byten värda ca 5,36 xP, alltså **40 %** av det chipet påstås ge. Med tre skadade i truppen: 96 %. Facit-fliken bekräftar att auto-byten faktiskt utlöses ("1 startspelare uteblev, så auto-bytena var i spel"). | Dra av auto-bytenas väntevärde: `bb = bänkens xP − Σ(1−xMins) över startelvan × villkorad bänk-xP`, med hänsyn till att målvakt bara ersätts av målvakt. | **Ja**, kört |
-| **B2** | Modell / saknad funktion | **Hög** | Vice kapten finns inte i någon uträkning. Modellen dubblar kaptenen utan att väga in att vice tar över om kaptenen inte spelar, och boten rekommenderar aldrig en vice. | `isVice` förekommer på exakt två ställen, `index.html:1734` och `1784`, båda rent visuella. Kaptensvärdet är `xi.total + kapten` utan vice-term. Kört: Haaland speltid 89 %, vices villkorade xP 4,59 → modellen missar ca **0,45 xP** och kan välja fel kapten när två kandidater ligger nära men har olika startsannolikhet. | Lägg till vice-termen i kaptensvärdet och ranka vice separat i Kapten-fliken. Gäller även Triple Captain, där vice ärver multiplikatorn. | **Ja**, kört |
+| ~~B1~~ | Bugg / modell | ~~Kritisk~~ **KLAR** `430f2aa` | Bench Boost överskattas med 40–96 %. Chipets värde sätts till hela bänkens xP, men utan chipet ger auto-bytena redan en stor del av den poängen när en startspelare uteblir. | `index.html:1178` `const bb=bench.reduce((s,p)=>s+xp(p),0)` med kommentaren "alltså exakt bänkens xP". Kört: frisk trupp bb 13,53 xP, förväntat antal uteblivna startspelare 1,40, bänkspelares xP när han spelar 3,82 → auto-byten värda ca 5,36 xP, alltså **40 %** av det chipet påstås ge. Med tre skadade i truppen: 96 %. Facit-fliken bekräftar att auto-byten faktiskt utlöses ("1 startspelare uteblev, så auto-bytena var i spel"). | Dra av auto-bytenas väntevärde: `bb = bänkens xP − Σ(1−xMins) över startelvan × villkorad bänk-xP`, med hänsyn till att målvakt bara ersätts av målvakt. | **Ja**, kört |
+| ~~B2~~ | Modell / saknad funktion | ~~Hög~~ **KLAR** `ee2defe` | Vice kapten finns inte i någon uträkning. Modellen dubblar kaptenen utan att väga in att vice tar över om kaptenen inte spelar, och boten rekommenderar aldrig en vice. | `isVice` förekommer på exakt två ställen, `index.html:1734` och `1784`, båda rent visuella. Kaptensvärdet är `xi.total + kapten` utan vice-term. Kört: Haaland speltid 89 %, vices villkorade xP 4,59 → modellen missar ca **0,45 xP** och kan välja fel kapten när två kandidater ligger nära men har olika startsannolikhet. | Lägg till vice-termen i kaptensvärdet och ranka vice separat i Kapten-fliken. Gäller även Triple Captain, där vice ärver multiplikatorn. | **Ja**, kört |
 | **B3** | Bugg | Medel | Free Hits blankvärde blir alltid 0 i den omgång man faktiskt skulle spela chipet. | `index.html:1183-1184`: spelare som saknar match i `g` värderas med `estimateXpAt(p,fm,**gw**,false)`. När `g===gw` returnerar den funktionen 0, eftersom `estimateXpAt` har `if(!fixtures.length) return {xp:0}` (rad 528). Kört: en spelare utan match i `gw` ger xP 0. | Värdera blanks mot ett generellt mått på spelarens värde, till exempel `estimateXpLong`, i stället för en specifik omgång som kan vara samma blanka omgång. | **Ja**, kört |
 | **B4** | Bugg / tillstånd | Medel | Kastar `buildRecs`, fastnar Byten-fliken på "Analyserar..." för alltid och felet försvinner i konsolen. | `index.html:3679-3686`: `setAnalyzing(true)` följs av ett `setTimeout` utan `try/catch`, där `setAnalyzing(false)` ligger **efter** anropet som kan kasta. `buildRecs` kastar numera om säljpriser saknas (rad ~1385). Grinden ligger i UI:t, kastet i modellen — två olika ställen. `SquadSuggestion.bygg()` gör rätt och fångar, så mönstret är inkonsekvent i samma fil. | `try/catch` runt kroppen, `setAnalyzing(false)` i `finally`, och visa felet som `SquadSuggestion` redan gör. | **Ja**, lästa kodvägar |
 | **B5** | Tillgänglighet | Medel | `T.dim` används för text ned till 10 px och klarar inte WCAG AA. | Uträknat kontrastförhållande: `T.dim` (#6C7684) mot kort (#161A21) = **3,79:1**, mot bakgrund = 4,33:1. AA kräver 4,5:1 för brödtext. Används i `statLbl` 10 px (rad 1615), `secTitle` 10 px (1663), `briefIntro` 13 px (1625), `staleNote` 12 px (1635). Knappens avstängda läge använder `T.disabled` (#4E5765) = **2,39:1**, under även 3:1-gränsen för stor text. | Lyft `dim` till minst #7C8694 (ca 4,6:1) eller använd `mut` (7,96:1) för all text under 18 px. Avstängd knapp behöver egen färg. | **Ja**, uträknat |
@@ -112,6 +121,26 @@ Fragmentet når aldrig en server.
   gränssnittet säger varför. Odds som inte går att de-vigga slopas i stället för
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
+
+## Vad som gjordes med B1 och B2
+
+**B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
+`vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
+utespelare, Poisson-binomialfördelat. Målvaktsplatsen är en egen kö. Nya
+funktioner: `antalUteblivna`, `benchBoostGain`. Effekt: frisk trupp 13,53 →
+8,76 xP. **Chiprådet ändrades** — Bench Boost låg över Triple Captain, ligger
+nu under. Verifierat mot ren uppräkning av 2^10 utfall och sju ytterlägen.
+
+**B2, `ee2defe`.** Ny funktion `armband(kandidater, xpOf)` som väljer kapten och
+vice ihop: `xP(K) + (1-speltid(K)) * xP(V)`, uttömmande över alla par. Används i
+`planGwVarde`, Triple Captain, WeekTab och CaptainTab. Briefen fick
+`viceKaptenNamn` plus en ordlisterad i `api/briefing.js`. Effekt: +0,45 xP på
+Johns trupp. **Bandet flyttas inte** — på 20 riktiga trupper valdes alltid samma
+kapten som en ren xP-sortering.
+
+Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
+noll minuter, eftersom xMins är en minutandel. Håller för etablerade
+startspelare, vilket är de enda som väljs.
 
 ## Att ta ställning till
 
