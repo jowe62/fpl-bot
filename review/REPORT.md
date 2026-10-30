@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`), **B11** (`eb1d11a`), **B12** (`00be5a2`), **B14** (`ddb4ffb`) |
-| **Kvar** | B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** (`5627ae6`), **B10** (`af900cf`), **B11** (`eb1d11a`), **B12** (`00be5a2`), **B14** (`ddb4ffb`), **B15** |
+| **Kvar** | — alla femton åtgärdade |
 
-Ordningen är Johns. Han plockar ID, ett i taget.
+Ordningen var Johns. Han plockade ID, ett i taget. **Alla femton är åtgärdade.**
 
 Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2,
 B3–B7 och B13 har rört `index.html`, B8 `api/fpl.js`. Raden här påstod tidigare att inget ändrats;
@@ -93,7 +93,7 @@ Fragmentet når aldrig en server.
 | ~~B12~~ | UX | ~~Låg~~ **KLAR** `00be5a2` | Chips-fliken visar ett värde för ett chip som är förbrukat. | Reproducerat i UI:t: Triple Captain visade **"SLUT · använt i GW3"** och direkt under **"Ger 5.2 xP extra den här omgången"** plus raden om vilken av de fem kommande omgångarna som vore bäst — råd om ett drag som inte finns. `chipAvailability` bekräftar mot live-data: `tc available=false, usedAt=3`. **Samma kort hade ett andra fel:** etiketten var hårdkodad "SLUT" för *all* otillgänglighet. I GW1 ligger både wildcard och Free Hit utanför sina fönster (båda börjar GW2) — då hade kortet påstått att de var förbrukade innan säsongen börjat. | Rendera varken värde eller jämförelse när chipet inte går att spela, och skilj "SLUT" från "STÄNGT". | **Ja**, båda lägena körda i webbläsaren |
 | ~~B13~~ | UX | ~~Låg~~ **KLAR** `9baf325` | Ranken läses som tre separata nyckeltal. | Uppmätt i DOM:en med `Range.getBoundingClientRect`, tecken för tecken: IBM Plex Mono är monospace, så **varje** glyf vid 40 px är 23,20 px bred — inklusive U+00A0. Avståndet mellan två **skilda** nyckeltal är 24 px. **Skillnad 0,79 px.** Rapportens korrigering stämde: talet radbryter inte, separatorerna är hårda mellanslag (teckenkod 160 avläst). Samma mätning visade att **`23t 3m`, nyckeltalet från B6, hade exakt samma fel** (23,21 px). | U+2009 i stället för U+00A0 i båda. | **Ja**, mätt före och efter, desktop och mobil |
 | ~~B14~~ | Kod | ~~Låg~~ **KLAR** `ddb4ffb` | "av fyra bänkspelare" är hårdkodat. **Och det fanns ett till: "av dina 11" i template-raden.** | Meningen räknar själv ur `r.benchNames` och sätter sedan "fyra" som text — två källor för samma tal, där den ena tyst slutar stämma om FPL ändrar sig. Samma sak på Veckan: `overlap` räknas ur `starters` men nämnaren stod som "11". Filen har redan `squadRules(bs)` som läser `squad_squadsize` ur bootstrap och kastar om den saknas, och HANDOFF säger uttryckligen "lägg inte tillbaka någon av dem som konstant". | `r.benchNames.length` respektive `starters.length`. | **Ja**, kört med 3, 4 och 6 på bänken |
-| **B15** | Säkerhet | Låg | Felsvar från `/api/fpl` saknar CORS-header och läcker intern feltext. | `api/fpl.js:8` returnerar fel utan `ACAO`, rad 14 returnerar `e.message` rakt ut. | Sätt headern innan felsvaren och logga detaljen i stället för att returnera den. | **Ja**, läst |
+| ~~B15~~ | Säkerhet | ~~Låg~~ **KLAR** | Felsvar saknar CORS-header och läcker intern feltext. | **CORS-delen är redan löst och på ett annat sätt än rapporten tänkte:** `B8` tog bort `ACAO` från *alla* svar, eftersom boten är samma origin. Felsvaren är alltså konsekventa med resten — inget att lägga till. Läckan var verklig och mättes med stubbad `fetch` mot den riktiga handlern: DNS-fel gav `getaddrinfo ENOTFOUND fantasy.premierleague.com`, och när FPL svarar HTML i stället för JSON gick **ett stycke av deras svarsbody** rakt igenom. Samtidigt loggades **ingenting** — den som driver tjänsten såg minst av alla. | Logga detaljen med sökvägen, returnera `Upstream request failed`. | **Ja**, fyra felvägar körda före och efter |
 
 ---
 
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B14
+## Vad som gjordes med B1–B15
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -432,6 +432,30 @@ skillnad från de två ovan är det en **validering** — går den fel laddas in
 trupp alls. `squadRules(bs)` har redan `squad_squadsize`, så den går att
 härleda, men funktionen får inte `bs` idag. Värt en egen ändring, inte en
 gratis följd av den här.
+
+**B15.** Felsvaren bär inte längre `e.message`.
+
+**Rapportens CORS-del var redan avklarad, men inte som den trodde.** Den
+föreslog att sätta headern *före* felsvaren. B8 tog i stället bort `ACAO`
+helt, eftersom boten hämtar `/api/fpl` relativt och är samma origin. Felsvaren
+är därmed konsekventa med alla andra svar, och det fanns inget att lägga till.
+
+Läckan mättes med stubbad `fetch` mot den riktiga handlern:
+
+| felväg | före | efter |
+|---|---|---|
+| DNS-fel | `getaddrinfo ENOTFOUND fantasy.premierleague.com` | `Upstream request failed` |
+| nätverk nere | `fetch failed` | `Upstream request failed` |
+| FPL svarar HTML | `Unexpected token < … "<!DOCTYPE html><html>…"` | `Upstream request failed` |
+| FPL 403 | `FPL error` (403) | oförändrat |
+
+Den tredje raden är den som betyder något: **upstreams svarsbody gick rakt
+igenom till den som anropade.** Och i alla tre fallen loggades ingenting, så
+den som driver tjänsten såg minst av alla. Nu är det tvärtom — detaljen går
+till loggen med sökvägen som sammanhang.
+
+Klienten tappar inget på bytet: `fplFetch` läser aldrig felkroppen, den kastar
+på `HTTP ${status}`.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade

@@ -596,6 +596,13 @@ kontots kvot, med botens IP-rykte som insats.
 följer därmed är en sökväg. Det var kvotmissbruk, inte SSRF — återutred inte
 det som SSRF.
 
+**Felsvar bär aldrig `e.message`.** Detaljen loggas med sökvägen, svaret
+säger `Upstream request failed`. Uppmätt 2026-10-30 med stubbad `fetch`: den
+gamla varianten skickade ut `getaddrinfo ENOTFOUND …` och, när FPL svarar
+HTML i stället för JSON, ett stycke av deras svarsbody — samtidigt som
+ingenting loggades. Klienten tappar inget: `fplFetch` läser aldrig
+felkroppen, den kastar på `HTTP ${status}`.
+
 **Ingen `Access-Control-Allow-Origin`.** Boten hämtar `/api/fpl` relativt och
 är samma origin som funktionen, även i iframen (iframens dokument är
 vercel-adressen). Samma origin frågar aldrig efter CORS. Sätt inte tillbaka

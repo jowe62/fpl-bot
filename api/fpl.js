@@ -52,6 +52,16 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "s-maxage=60");
     return res.status(200).json(data);
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    // Detaljen hor hemma i loggen, inte i svaret. Uppmatt 2026-10-30 med
+    // stubbad fetch bar `e.message` bland annat
+    // "getaddrinfo ENOTFOUND fantasy.premierleague.com" och - nar FPL svarar
+    // HTML i stallet for JSON - ett stycke av DERAS svarsbody rakt igenom
+    // till den som anropar. Samtidigt loggades ingenting, sa den som driver
+    // tjansten sag minst av alla. Precis bakvant.
+    //
+    // Klienten tappar inget pa bytet: `fplFetch` laser aldrig felkroppen,
+    // den kastar pa `HTTP ${status}`.
+    console.error("[fpl-proxy] fel for", path, "-", e);
+    return res.status(500).json({ error: "Upstream request failed" });
   }
 }
