@@ -621,6 +621,31 @@ observern varje gång. Sedan nedräkningen (`790692f`) renderar om `App` var
 dygn. Åtgärdat med `},[])`; blocket stänger inte om någon state, så listan är
 säker.
 
+## Huvudraden (intro-delen)
+
+Byggd 2026-10-30 efter en skiss från John. Tre delar:
+
+1. **Titel** — lagnamnet.
+2. **Metarad** i mono: `namn · rank N · ● synkad HH:MM · Rensa`. Synk-pricken
+   och Rensa visas bara när en trupp hämtats med bokmärkesknappen, och blir
+   gula när truppen är gammal (`squadAlder().gammal`).
+3. **Deadlinepastill** till höger och **tre pastiller** under titeln: fria
+   transfers (limefylld), banken, säljvärde med truppvärdet inom parentes.
+
+Den gamla raden med sju stora nyckeltal är borta. Inget innehåll försvann:
+rank flyttade till metaraden, GW-numret in i deadlinepastillen, truppvärdet
+in i säljvärdets parentes.
+
+**Den gröna noten under truppen visas nu bara när den bär en varning** —
+gammal trupp, eller att FPL inte skickade antalet fria transfers. Att truppen
+är hämtad och när står i metaraden, så en grön ruta som upprepar det är brus.
+Varningsfallen är oförändrade.
+
+**Pastillen får inte ha `flexShrink:0` med `nowrap` på barnen.** Då blir den
+386 px bred i en 343 px förälder vid 375 px fönster och sticker ut 43 px
+(uppmätt). Den har `flexWrap` och `maxWidth:100%` i stället, så tidpunkten
+bryter till egen rad inne i ramen.
+
 ## Deadline
 
 `bootstrap.events[]` bär **tre** deadlinefält: `deadline_time` (ISO-sträng,
@@ -639,10 +664,15 @@ absoluta tidpunkten i huvudraden. Under tre timmar kvar färgas siffran
 går då inte längre att handla på. Antag inte att `is_next` flyttas i samma
 sekund som deadline löper ut.
 
-Nedräkningen drivs av en `setInterval` på 30 s i `App` som bara sätter en
-tidsstämpel. Det ger en omrendering varje halvminut; kontrollerat att inget
-tungt hänger i den vägen — `buildChipAdvice` är det enda omemoiserade och
-kostar 4,2 ms. `buildPlan` och `buildRecs` ligger i `useMemo`.
+**Nedräkningen bor i sin egen komponent, `Nedrakning`, med sin egen
+`setInterval` på 1 s.** Klockan låg i `App` förut, vilket renderade om hela
+appen var 30:e sekund — och i varje sådan omrendering revs ResizeObservern
+upp (B7). Nu rör sig bara den noden, och `App` står stilla. Lägg aldrig
+tillbaka en klocka i `App`.
+
+Siffran är nollfylld (`18t 50m 07s`). `tabular-nums` ger lika breda siffror,
+inte lika många, så utan utfyllnad hoppar bredden när `9s` blir `10s`.
+Separatorn är U+2009 — se avsnittet om typografi.
 
 ## Typografi i nyckeltalsraden
 

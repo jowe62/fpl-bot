@@ -55,9 +55,7 @@
 
     main{padding:16px;}
     .mobHide{display:none!important;}
-    .kpi{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;}
     /* Displaystorlekarna är satta för 1440px. På 390px äter de hela rader. */
-    .kpi .val{font-size:24px!important;line-height:28px!important;}
     .lead{font-size:24px!important;line-height:30px!important;}
     .htitle{font-size:18px!important;line-height:24px!important;}
     /* Spelarkorten: kompaktare så hela laget ryms utan att namnen blir
@@ -311,12 +309,20 @@ function tidTill(deadlineMs, nu){
   // omgangen anda en stund efter att den stangt. Da ar radet inte langre
   // nagot man kan handla pa, och siffran ska saga det - inte visa minus.
   if(kvar <= 0) return {text:"Passerad", passerad:true, bradska:false};
-  const m = Math.floor(kvar/60000), t = Math.floor(m/60), d = Math.floor(t/24);
+  const sek = Math.floor(kvar/1000), m = Math.floor(sek/60),
+        t = Math.floor(m/60), d = Math.floor(t/24);
+  // Nollfyllt. Siffran tickar varje sekund, och utan utfyllnad hoppar bredden
+  // nar "9s" blir "10s" - tabular-nums ger lika breda SIFFROR, inte lika
+  // manga. Forsta talet fylls inte, det skulle se ut som en klocka.
+  const pad = n => String(n).padStart(2,"0");
+  // Tunt mellanrum, av samma skal som kpiTal: ett vanligt mellanslag ar lika
+  // brett som en siffra i den har monospacen. Uppmatt 2026-10-30.
+  const N = "\u2009";
   return {
-    // Tunt mellanrum, av samma skal som kpiTal: ett vanligt mellanslag ar
-    // 23,20 px i den har monospacen och alltsa lika brett som avstandet till
-    // NASTA nyckeltal, sa "23t 3m" las som tva. Uppmatt 2026-10-30.
-    text: d>=1 ? `${d}d\u2009${t%24}t` : t>=1 ? `${t}t\u2009${m%60}m` : `${m}m`,
+    text: d>=1 ? `${d}d${N}${pad(t%24)}t${N}${pad(m%60)}m`
+        : t>=1 ? `${t}t${N}${pad(m%60)}m${N}${pad(sek%60)}s`
+        : m>=1 ? `${m}m${N}${pad(sek%60)}s`
+        :        `${sek}s`,
     passerad: false,
     // Tre timmar kvar ar inte dekoration, det ar riktningen "gor det nu".
     bradska: kvar < 3*3600*1000,
@@ -347,10 +353,15 @@ function tidTill(deadlineMs, nu){
 function kpiTal(n){
   return n==null ? null : n.toLocaleString("sv-SE").replace(/\u00A0/g, "\u2009");
 }
-function deadlineStamp(ms){
+// "lör 12:00" nar deadline ligger inom veckan, annars med datum. Veckodagen
+// ensam duger inte alltid: mellan GW10 (6 nov) och GW11 (21 nov) ar det
+// femton dagar, sa "lör" vore tvetydigt. Grans vid sex dygn.
+function deadlineStamp(ms, nu=Date.now()){
   try{
-    return new Date(ms).toLocaleString("sv-SE",
-      {weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+    const naraVecka = ms - nu < 6*24*3600*1000;
+    return new Date(ms).toLocaleString("sv-SE", naraVecka
+      ? {weekday:"short",hour:"2-digit",minute:"2-digit"}
+      : {weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   }catch{ return ""; }
 }
 // Uppräkning i en MENING. Svenska har inget oxfordkomma: komma mellan alla
@@ -1826,10 +1837,39 @@ const c={
   hdr:{marginBottom:"28px",paddingBottom:"20px",borderBottom:`1px solid ${T.line}`},
   hdrTitle:{fontSize:"21px",lineHeight:"28px",fontWeight:800,color:T.ink,letterSpacing:"-.01em"},
   hdrSub:{fontSize:"15px",lineHeight:"25px",color:T.mut,marginTop:"2px"},
-  stats:{display:"flex",gap:"24px",marginTop:"18px",flexWrap:"wrap"},
-  stat:{},
-  statVal:{fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",fontSize:"40px",lineHeight:"44px",fontWeight:700,color:T.ink,letterSpacing:"-.02em"},   // skalas ned av .kpi .val pa mobil
-  statLbl:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"10px",fontWeight:600,letterSpacing:".14em",textTransform:"uppercase",color:T.dim,marginTop:"2px"},
+  hdrTop:{display:"flex",alignItems:"flex-start",gap:`${SP[5]}px`,flexWrap:"wrap"},
+  hdrMeta:{fontFamily:'"IBM Plex Mono",monospace',fontSize:"13px",lineHeight:"22px",
+    color:T.mut,marginTop:`${SP[2]}px`,display:"flex",alignItems:"center",
+    gap:`${SP[2]}px`,flexWrap:"wrap"},
+  metaSep:{color:T.dim},
+  // Nyckeltalen som pastillerna. Vardet och etiketten pa samma rad i stallet
+  // for under varandra: raden blir lagre och etiketten sitter nara sitt tal,
+  // vilket var hela problemet i B13.
+  pillRad:{display:"flex",gap:`${SP[3]}px`,flexWrap:"wrap",marginTop:`${SP[5]}px`},
+  pill:(lime)=>({display:"flex",alignItems:"baseline",gap:`${SP[2]}px`,
+    padding:`${SP[3]}px ${SP[4]}px`,borderRadius:`${R.card}px`,
+    background:lime?T.brand:T.card,border:`1px solid ${lime?T.brand:T.line}`}),
+  pillVal:(lime)=>({fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",
+    fontSize:"22px",lineHeight:"26px",fontWeight:700,letterSpacing:"-.01em",
+    color:lime?T.bg:T.ink}),
+  pillLbl:(lime)=>({fontSize:"13px",fontWeight:lime?700:400,color:lime?T.bg:T.mut}),
+  // Deadlinepastillen. Lage: "ok", "bradska" (under tre timmar) eller
+  // "passerad". Fargen bar riktning, inte dekoration - GlennOS §01.
+  // flexWrap + maxWidth, inte flexShrink:0. Med nowrap pa barnen blev
+  // pastillen 386 px bred i en 343 px foralder vid 375 px fonster, och stack
+  // ut 43 px utanfor kanten (uppmatt). Nu bryter tidpunkten till egen rad
+  // inne i ramen i stallet.
+  dlPill:(lage)=>({display:"flex",alignItems:"baseline",gap:`${SP[3]}px`,
+    flexWrap:"wrap",maxWidth:"100%",
+    padding:`${SP[3]}px ${SP[5]}px`,borderRadius:`${R.pill}px`,
+    border:`1px solid ${lage==="bradska"?T.warn:lage==="passerad"?T.line:T.brand}`}),
+  dlLbl:(lage)=>({fontFamily:'"IBM Plex Mono",monospace',fontSize:"11px",fontWeight:700,
+    letterSpacing:".14em",textTransform:"uppercase",whiteSpace:"nowrap",
+    color:lage==="bradska"?T.warn:lage==="passerad"?T.dim:T.brand}),
+  dlVal:(lage)=>({fontFamily:'"IBM Plex Mono",monospace',fontVariantNumeric:"tabular-nums",
+    fontSize:"26px",lineHeight:"30px",fontWeight:700,letterSpacing:"-.01em",
+    whiteSpace:"nowrap",color:lage==="passerad"?T.dim:T.ink}),
+  dlWhen:{fontSize:"13px",color:T.dim},
   oddsBadge:(on)=>({display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"11px",marginTop:"16px",color:on?T.good:T.mut}),
   oddsWarn:{fontSize:"11px",color:T.warn,marginTop:"5px",lineHeight:1.5},
 
@@ -2309,6 +2349,32 @@ function TransferPlan({starters,bench,bs,fm,tb,bank,gw,freeTransfers}){
         ))}
     </div>
   );
+}
+
+// Nedrakningen ar det enda i granssnittet som ror sig av sig sjalvt, sa den
+// har sin EGEN tick och sin egen komponent. Klockan lag i App forut, vilket
+// renderade om hela appen var 30:e sekund - och i den omrenderingen revs
+// ResizeObservern upp varje gang (B7). Nu ror sig bara den har noden, en
+// gang i sekunden, och App star stilla igen.
+function Nedrakning({deadline, gw}){
+  const [nu,setNu]=useState(()=>Date.now());
+  useEffect(()=>{
+    const id=setInterval(()=>setNu(Date.now()),1000);
+    return ()=>clearInterval(id);
+  },[]);
+  // Saknas faltet sags det rakt ut i stallet for att pastillen forsvinner.
+  if(deadline==null) return(
+    <div style={c.dlPill("passerad")}>
+      <span style={c.dlLbl("passerad")}>Deadline saknas</span>
+    </div>);
+  const d=tidTill(deadline,nu);
+  const lage=d.passerad?"passerad":d.bradska?"bradska":"ok";
+  return(
+    <div style={c.dlPill(lage)}>
+      <span style={c.dlLbl(lage)}>{d.passerad?`GW${gw} stängde`:`GW${gw} stänger om`}</span>
+      {!d.passerad && <span style={c.dlVal(lage)}>{d.text}</span>}
+      <span style={c.dlWhen}>{deadlineStamp(deadline,nu)}</span>
+    </div>);
 }
 
 function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab}){
@@ -3822,9 +3888,6 @@ function App(){
   const [error,setError]=useState(null);
   const [analyzing,setAnalyzing]=useState(false);
   const [recsFel,setRecsFel]=useState("");
-  // Nedrakningen maste rakna ned. Halvminut racker: siffran visar hela
-  // minuter, sa tatare tick vore bara omrendering utan ny information.
-  const [nu,setNu]=useState(()=>Date.now());
   const [results,setResults]=useState(null);
   const [tab,setTab]=useState("week");
   const [menuOpen,setMenuOpen]=useState(false);
@@ -3862,11 +3925,6 @@ function App(){
     const ro=new ResizeObserver(post);
     ro.observe(document.documentElement);
     return ()=>ro.disconnect();
-  },[]);
-
-  useEffect(()=>{
-    const id=setInterval(()=>setNu(Date.now()),30000);
-    return ()=>clearInterval(id);
   },[]);
 
   useEffect(()=>{
@@ -4081,39 +4139,51 @@ function App(){
       </nav>
       <main>
       <div style={c.hdr}>
-        <div className="htitle" style={c.hdrTitle}>{entry.name}</div>
-        <div style={c.hdrSub}>
-          {entry.player_first_name} {entry.player_last_name} · GW{gw}
-          {deadline!=null && <> · deadline {deadlineStamp(deadline)}</>}
-          {!TEAMS.find(t=>t.id===TEAM_ID)?.mine && <span style={{color:T.warn}}> · du tittar på ett annat lag</span>}
+        <div style={c.hdrTop}>
+          <div style={{flex:"1 1 280px",minWidth:0}}>
+            <div className="htitle" style={c.hdrTitle}>{entry.name}</div>
+            <div style={c.hdrMeta}>
+              <span>{entry.player_first_name} {entry.player_last_name}</span>
+              <span style={c.metaSep}>·</span>
+              <span>rank <span className="num">{kpiTal(entry.summary_overall_rank)}</span></span>
+              {live && (()=>{
+                // Samma besked som den grona noten under truppen gav, men i
+                // huvudraden dar det syns pa alla flikar. Noten under truppen
+                // visas nu bara nar den har en VARNING att bara.
+                const a=squadAlder(live.savedAt);
+                return(<>
+                  <span style={c.metaSep}>·</span>
+                  <span style={{color:a.gammal?T.warn:T.good}}>●</span>
+                  <span style={a.gammal?{color:T.warn}:null}>
+                    synkad {new Date(live.savedAt).toLocaleTimeString("sv-SE",{hour:"2-digit",minute:"2-digit"})}
+                  </span>
+                  <span style={c.metaSep}>·</span>
+                  <button style={c.weekLink}
+                    onClick={()=>{try{localStorage.removeItem(LIVE_KEY);}catch{} location.reload();}}>Rensa</button>
+                </>);
+              })()}
+              {!TEAMS.find(t=>t.id===TEAM_ID)?.mine &&
+                <><span style={c.metaSep}>·</span><span style={{color:T.warn}}>du tittar på ett annat lag</span></>}
+            </div>
+          </div>
+          <Nedrakning deadline={deadline} gw={gw}/>
         </div>
-        <div style={c.stats} className="kpi">
-          <div style={c.stat}><div className="val" style={c.statVal}>#{kpiTal(entry.summary_overall_rank)}</div><div style={c.statLbl}>Rank</div></div>
-          <div style={c.stat}><div className="val" style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
-          <div style={c.stat}><div className="val" style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
-          {(()=>{
-            // Det enda talet i raden som ror sig, och det som hela boten
-            // handlar om: hinner du besluta? Saknas faltet sags det rakt ut,
-            // precis som for saljvardet bredvid.
-            if(deadline==null) return(
-              <div style={c.stat}>
-                <div className="val" style={{...c.statVal,color:T.dim}}>–</div>
-                <div style={c.statLbl}>Deadline saknas</div>
-              </div>);
-            const d=tidTill(deadline,nu);
-            return(
-              <div style={c.stat}>
-                <div className="val" style={{...c.statVal,
-                  color:d.passerad?T.dim:d.bradska?T.warn:T.ink}}>{d.text}</div>
-                <div style={c.statLbl}>{d.passerad?"Deadline":"Till deadline"}</div>
-              </div>);
-          })()}
-          <div style={c.stat}><div className="val" style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
-          {squadValue!=null &&
-            <div style={c.stat}><div className="val" style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}
-          <div style={c.stat}>
-            <div className="val" style={c.statVal}>{sellValue!=null?`£${sellValue.toFixed(1)}m`:"–"}</div>
-            <div style={c.statLbl}>{sellValue!=null?"Säljvärde":"Säljpris saknas"}</div>
+        <div style={c.pillRad}>
+          <div style={c.pill(true)}>
+            <span style={c.pillVal(true)}>{freeTransfers}</span>
+            <span style={c.pillLbl(true)}>{freeTransfers===1?"fri transfer":"fria transfers"}</span>
+          </div>
+          <div style={c.pill(false)}>
+            <span style={c.pillVal(false)}>£{bank.toFixed(1)}m</span>
+            <span style={c.pillLbl(false)}>i banken</span>
+          </div>
+          <div style={c.pill(false)}>
+            <span style={c.pillVal(false)}>{sellValue!=null?`£${sellValue.toFixed(1)}m`:"–"}</span>
+            <span style={c.pillLbl(false)}>
+              {sellValue!=null
+                ? <>säljvärde{squadValue!=null && <> (trupp £{squadValue.toFixed(1)}m)</>}</>
+                : "säljpris saknas"}
+            </span>
           </div>
         </div>
       </div>
@@ -4127,7 +4197,13 @@ function App(){
           })()}
         </div>
         {live
-          ? <div style={squadAlder(live.savedAt).gammal ? c.liveStale : c.liveNote}>
+          // Noten visas bara nar den har en VARNING att bara: gammal trupp,
+          // eller att FPL inte skickade antalet fria transfers. Att truppen ar
+          // hamtad och nar star i huvudraden ("● synkad 16:44"), sa en gron
+          // ruta som upprepar det ar bara brus.
+          ? ((squadAlder(live.savedAt).gammal ||
+              !(live.raw && typeof live.raw.limit==="number" && typeof live.raw.made==="number"))
+            ? <div style={squadAlder(live.savedAt).gammal ? c.liveStale : c.liveNote}>
               ● Trupp och bank hämtade från FPL {squadAlder(live.savedAt).txt}
               {" "}({new Date(live.savedAt).toLocaleString("sv-SE",{dateStyle:"short",timeStyle:"short"})}).
               {squadAlder(live.savedAt).gammal &&
@@ -4139,6 +4215,7 @@ function App(){
                    {live.raw ? <> FPL skickade fälten: {Object.keys(live.raw).join(", ")}.</> : null}</>}
               {" "}<button style={c.weekLink} onClick={()=>{try{localStorage.removeItem(LIVE_KEY);}catch{} location.reload();}}>Rensa</button>
             </div>
+            : null)
           : <div style={c.staleNote}>
               FPL publicerar en omgångs trupp först när dess deadline passerat, så
               byten inför GW{gw} syns inte här.
