@@ -324,6 +324,16 @@ alias och fällor, behåll distinkta tokens som bär en designbeslut.
 Efter borttagningen: 0 oanvända deklarationer, alla tio flikar renderar,
 konsolen ren.
 
+**Svepet missade två saker, hittade i efterhand.** Deklarationer *inne i*
+komponenter och nycklar i stilobjektet `c` ligger inte på toppnivå. Där satt
+`riskBg` i `TransferCard`: en färg per risknivå som skickades till `c.rb`,
+vars hela kropp var `(bg)=>({})` — argumentet togs emot och kastades bort.
+Riktningen bars hela tiden av textfärgen i `c.rv`. En av de bortkastade
+färgerna var samma opaka `#FAEFEC` som gjorde skadekorten oläsliga i B5; här
+målades den aldrig, men den låg och väntade. `riskBg`, `c.rb` och hela
+bg-argumentet är borta. Korten renderar oförändrat, verifierat med alla tre
+korten framme.
+
 **Rättelse till B5:** motiveringen där åberopade `overlay` som "den ljusaste
 ytan och därmed den svåraste". `T.overlay` målas aldrig — den var en oanvänd
 dubblett. Den svåraste ytan som faktiskt förekommer är `card`, där `dim` ger

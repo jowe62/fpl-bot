@@ -1910,7 +1910,6 @@ const c={
   fixtures:{fontSize:"11px",color:T.mut,marginBottom:"14px",lineHeight:1.8},
   news:{display:"flex",gap:"7px",background:T.warnBg,borderRadius:"7px",padding:"9px 11px",marginBottom:"12px",fontSize:"12px",color:T.warn,lineHeight:1.5},
   risks:{display:"flex",gap:"22px",flexWrap:"wrap"},
-  rb:(bg)=>({}),
   rl:{fontSize:"10px",color:T.mut,marginBottom:"2px"},
   rv:(v)=>({fontSize:"12px",fontWeight:"500",color:{Låg:T.good,Medel:T.warn,Hög:T.bad}[v]||T.ink}),
 
@@ -1974,7 +1973,6 @@ function Pitch({players,fm,tb,bench,singleRow}){
 }
 
 function TransferCard({rec}){
-  const riskBg={Låg:T.good,Medel:T.card,Hög:"#FAEFEC"};
   return(
     <div style={c.card(rec.type)}>
       <div style={c.cardHdr}>
@@ -1999,8 +1997,14 @@ function TransferCard({rec}){
       <p style={c.reason}>{rec.reason}</p>
       <p style={c.fixtures}>{rec.fixtures}</p>
       <div style={c.risks}>
-        {[["Risk",rec.risk,riskBg[rec.risk]||T.card],["Potential",rec.reward,riskBg[rec.reward]||T.card],["Omgång",rec.gwImpact,T.card],["Ägs av",`${num(rec.own).toFixed(1)}%`,T.card]].map(([lbl,val,bg],i)=>(
-          <div key={i} style={c.rb(bg)}>
+        {/* Ingen bakgrundsfarg skickas langre. `riskBg` plockade fram en
+            farg per risknivå som `c.rb` sedan kastade bort - stilen tog emot
+            argumentet och returnerade tomt objekt. Riktningen bars hela tiden
+            av textfargen i `c.rv`. En av de bortkastade fargerna var dessutom
+            samma opaka `#FAEFEC` som gjorde skadekorten olasliga i B5; den
+            malades aldrig har, men den var en olycka som vantade. */}
+        {[["Risk",rec.risk],["Potential",rec.reward],["Omgång",rec.gwImpact],["Ägs av",`${num(rec.own).toFixed(1)}%`]].map(([lbl,val],i)=>(
+          <div key={i}>
             <div style={c.rl}>{lbl}</div>
             <div style={i<2?c.rv(val):{fontSize:"12px",fontWeight:"500",color:T.mut}}>{val}</div>
           </div>
