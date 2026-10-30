@@ -81,6 +81,10 @@
        att ens upptäcka, och omöjlig att läsa av i en överblick. */
     .scrollx{overflow-x:visible;}
 
+  /* Mobilregler. OBS: fargerna har ar literaler, inte T-tokens - CSS-blocket
+     ser inte paletten. Andras `dim` i T maste de bytas har ocksa. Uppmatt
+     2026-10-30: gamla #6C7684 gav 4,33:1 pa 9 och 11 px, alltsa under AA,
+     och 281 noder foll pa Fixtures och Ligan vid 375 px. */
     /* Omgångstabeller (fixtures, rotation): spelaren får en egen rad och
        omgångscellerna flödar under med sin egen GW-etikett. */
     .gwtable thead{display:none;}
@@ -91,7 +95,7 @@
     .gwtable td:first-child{margin-bottom:8px;}
     .gwtable td:not(:first-child){display:inline-block;margin:0 6px 4px 0;text-align:center;}
     .gwtable td[data-l]::before{content:attr(data-l);display:block;
-      font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6C7684;margin-bottom:2px;}
+      font-family:"IBM Plex Mono",monospace;font-size:9px;color:#818B98;margin-bottom:2px;}
 
     /* Stapelgrupper: smalare staplar och tatare mellanrum sa en hel sasong
        ryms utan sidledsrullning. */
@@ -105,10 +109,10 @@
       padding:10px 12px;margin-bottom:8px;position:relative;}
     .rtable td{padding:0!important;text-align:left!important;}
     .rtable td.rname{font-size:15px;font-weight:600;margin-bottom:6px;padding-right:76px!important;}
-    .rtable td.rpos{position:absolute;right:12px;top:10px;font-size:11px;color:#6C7684;}
+    .rtable td.rpos{position:absolute;right:12px;top:10px;font-size:11px;color:#818B98;}
     .rtable td.rpts{position:absolute;right:12px;bottom:10px;font-size:17px!important;font-weight:700;}
     .rtable td.rsub{display:inline-block;margin-right:10px;font-size:11px;color:#A7B0BD;}
-    .rtable td.rsub::before{content:attr(data-l) " ";color:#6C7684;}
+    .rtable td.rsub::before{content:attr(data-l) " ";color:#818B98;}
   }
   @media (min-width:768px){ .topbar,.burger{display:none;} }
 </style>

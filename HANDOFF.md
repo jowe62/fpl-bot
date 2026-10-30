@@ -691,7 +691,18 @@ eftersom en oanvänd token med ett underkänt värde är en fälla.
 ### Så mäter du kontrast
 
 Läsa koden räcker inte: bakgrunden är ofta flera `rgba`-lager, och den
-verkliga färgen finns bara i DOM:en. Kör ett skript i sidan som för varje
+verkliga färgen finns bara i DOM:en.
+
+**Tre saker som ett svep måste göra, annars mäter det halva appen** (allt
+lärt den hårda vägen 2026-10-30, när ett första svep missade 281 fall):
+
+1. **Kör i minst två fönsterbredder.** Mobilreglerna ligger i en media query
+   och syns inte alls vid skrivbordsbredd.
+2. **Läs `::before` och `::after`.** `content:attr(data-l)` bär synlig text
+   som ingen genomgång av textnoder hittar.
+3. **Kom ihåg att `<style>`-blocket inte ser paletten.** Färgerna där är
+   literaler. Ändrar du en ton i `T` måste du greppa efter det gamla
+   hexvärdet i CSS-blocket också. Kör ett skript i sidan som för varje
 textnod går uppåt i trädet, komposterar alfa-lagren till en opak färg, och
 jämför mot AA-tröskeln för nodens **egen** `fontSize` och `fontWeight`
 (4,5:1, eller 3:1 vid ≥24 px eller ≥18,66 px fet). Svep alla tio flikarna och
