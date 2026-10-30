@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`) |
-| **Kvar** | B9, B10, B11, B12, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** (`790692f`), **B7** (`a07a992`), **B8** (`26fb616`), **B13** (`9baf325`), **B9** |
+| **Kvar** | B10, B11, B12, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
@@ -87,7 +87,7 @@ Fragmentet når aldrig en server.
 | ~~B6~~ | UX | ~~Medel~~ **KLAR** `790692f` | Deadline visades aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**; fältet läses bara i `api/odds.js`. Bekräftat mot **live** bootstrap 2026-10-30: `deadline_time_epoch` 1793444400 = `deadline_time` 2026-10-31T11:00:00Z, alltså GW9-deadline kl 12:00 svensk tid — 23½ timme bort och ingenstans i gränssnittet. | Nedräkning som nyckeltal intill NÄSTA OMGÅNG, plus den absoluta tidpunkten i huvudraden. | **Ja**, kört i webbläsaren: alla tre lägen plus tickandet |
 | ~~B7~~ | Kod | ~~Medel~~ **KLAR** `a07a992` | `useEffect` för iframe-höjd saknade beroendelista och rev upp en `ResizeObserver` vid varje omrendering. **B6 gjorde den värre: churnen slutade bero på att någon klickar.** | Mätt i en **riktig iframe** (effekten returnerar tidigt på toppnivå, så den går inte att mäta där) med en räknare runt `ResizeObserver`. Före: fem flikbyten → **4 nya observers**, och 60 sekunders helt stillastående sida → **2 till**, alltså ~2 880 rivna observers per dygn på en orörd flik sedan `790692f`. Varje cykel skickade dessutom två hojdmeddelanden med **oförändrad** höjd. | `},[])`. Blocket stänger inte om någon state eller prop, så listan kan inte ge en inaktuell closure. | **Ja**, mätt i iframe före och efter |
 | ~~B8~~ | Säkerhet | ~~Medel~~ **KLAR** `26fb616` | `/api/fpl` var en öppen proxy som vem som helst kunde använda. | Bevisat mot **den skarpa deployen** 2026-10-30, inte bara läst: `/leagues-classic/314/standings/`, `/element-summary/411/`, `/event-status/` och `/entry/1/` gav alla **200** från min maskin — sökvägar boten aldrig efterfrågar. `ACAO: *` bekräftad i svaret. Att värden **inte** gick att byta prövades också i stället för att antas: tio försök (`//evil.example/x`, `https://evil.example/`, `@evil.example/`, `/../../..`, `..%2F`, backslash, tabb, fragment) gav alla host `fantasy.premierleague.com`, eftersom basen slutar på `/api` och allt som följer därmed är en sökväg. **Kvotmissbruk, inte SSRF.** | Vitlista med botens sju sökvägar; `ACAO` borttagen helt eftersom boten är samma origin. | **Ja**, kört: handlern mot alla vägar, plus hela boten genom den |
-| **B9** | Kod | Låg | Död kod. | `PlayerChip` definieras på rad 1775 och förekommer ingen annanstans. `POS_SV` definieras på rad 194 och används aldrig. Båda verifierade med ordgräns-grep över hela filen. | Ta bort. | **Ja**, grep |
+| ~~B9~~ | Kod | ~~Låg~~ **KLAR** | Död kod. | Svepte hela babel-blocket i stället för att bara kontrollera de två rapporten nämnde: **150 deklarationer på toppnivå, 2 utan någon användning** — precis `PlayerChip` och `POS_SV`, så rapporten hade rätt och var uttömmande på den punkten. Samma svep över paletten hittade **fem oanvända fält**: `raised` och `overlay` (dubbletter av `card` respektive `line`, samma hexvärde), `neutral` (låst på gamla dim `#6C7684`, 3,79:1 — en fälla jag flaggade i B5), samt `brandHover`/`brandPress`. | Ta bort de två funktionerna och de tre dubblett-/fällefälten. `brandHover`/`brandPress` **behålls**: de har egna värden och en dokumenterad roll som interaktionslägen, till skillnad från dubbletterna. | **Ja**, svep + körd app före/efter |
 | **B10** | UX / språk | Låg | Uppräkningar blir "A och B och C" i stället för "A, B och C". | `index.html:2307` och `2313`: `.join(" och ")`. Syns i skärmbilden av Veckan: "Byt in Kinsky och N.Williams och McBurnie". | Hjälpfunktion som sätter komma mellan alla utom de två sista. | **Ja**, skärmbild + kod |
 | **B11** | Modell | Låg | Triple Captain utesluter målvakter ur kaptensvalet. | `index.html:1181`: `starters.filter(p=>p.element_type!==1)`. FPL tillåter kapten på målvakt. Filtret är ett antagande, inte en regel läst ur API:t, vilket projektets egna regler säger att man inte ska göra. | Ta bort filtret. En målvakt vinner ändå aldrig i praktiken, så beteendet ändras inte — men antagandet försvinner. | **Ja**, läst |
 | **B12** | UX | Låg | Chips-fliken räknar fram och visar ett värde för ett chip som är förbrukat. | Skärmbilden av Chips: Triple Captain visar "Ger 4.5 xP extra den här omgången" samtidigt som den är märkt SLUT och "använt i GW3". Koden sätter `available:false` (rad 1143) men renderar ändå värdet. | Visa inget värde när `available` är falskt. |  **Ja**, skärmbild + kod |
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B8 och B13
+## Vad som gjordes med B1–B9 och B13
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -293,6 +293,26 @@ layout alls och skalar med fontstorleken av sig själv.
 **Och mätningen fångade ett fel jag själv infört två ID tidigare:** `23t 3m`
 från **B6** hade samma 23,21 px mellanrum. Rättat i samma ändring — det hade
 varit ologiskt att laga ranken och lämna en identisk tvetydighet bredvid.
+
+**B9.** Rapportens två fynd stämde, och svepet visade att de var de enda
+funktionerna: 150 deklarationer på toppnivå, 2 oanvända. Men svepet över
+paletten hittade mer — `raised` och `overlay` är rena dubbletter (samma
+hexvärde som `card` och `line`) och `neutral` satt kvar på gamla dim-värdet
+som inte klarar AA. Alla tre borta.
+
+`brandHover` och `brandPress` är också oanvända men **behålls**. De har egna
+värden och en dokumenterad roll — hover ljusare, press mörkare än
+viloläget — till skillnad från dubbletterna. Gränsen jag dragit: ta bort
+alias och fällor, behåll distinkta tokens som bär en designbeslut.
+
+Efter borttagningen: 0 oanvända deklarationer, alla tio flikar renderar,
+konsolen ren.
+
+**Rättelse till B5:** motiveringen där åberopade `overlay` som "den ljusaste
+ytan och därmed den svåraste". `T.overlay` målas aldrig — den var en oanvänd
+dubblett. Den svåraste ytan som faktiskt förekommer är `card`, där `dim` ger
+**5,05:1**. Valet av `#818B98` står kvar och har alltså mer marginal än jag
+skrev, men skälet var fel och är rättat i HANDOFF.md.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade

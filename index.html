@@ -151,7 +151,10 @@ const LEAGUE_ID = 200158;   // GBG Filbyter Bois
 // riktning — aldrig som dekoration.
 const T = {
   // Canvas & ytor — elevation genom yta, inte skugga
-  bg:"#07090C", surface:"#0E1116", card:"#161A21", raised:"#161A21", overlay:"#1E242D",
+  // raised och overlay ar borta: de var DUBBLETTER av card respektive line
+  // (samma hexvarde) och lastes aldrig. Behover du ett tredje djup, ge det
+  // ett eget varde - aterinfor inte ett alias.
+  bg:"#07090C", surface:"#0E1116", card:"#161A21",
   line:"#1E242D", lineStrong:"#2A313C",
   // Text. Varje ton ska klara WCAG AA (4,5:1) mot ALLA fyra ytorna ovan, inte
   // bara mot bg. Uppmatt 2026-10-30 i DOM:en: gamla dim (#6C7684) gav 4,33:1
@@ -171,7 +174,10 @@ const T = {
   // (300) och press MÖRKARE (700) än vilotillståndet (500).
   brand:"#C8FF2E", brandHover:"#DBFF6B", brandPress:"#A8DC10",
   // Semantik — riktning, aldrig dekoration
-  good:"#24D07A", bad:"#FF4D5E", warn:"#FFAE33", info:"#2ED8FF", neutral:"#6C7684",
+  // `neutral` ar borta. Den var oanvand OCH last kvar pa gamla dim-vardet
+  // #6C7684, som mats till 3,79:1 mot card och alltsa inte klarar AA. En
+  // oanvand token med ett underkant varde ar en falla, inte en reserv.
+  good:"#24D07A", bad:"#FF4D5E", warn:"#FFAE33", info:"#2ED8FF",
   alt:"#FF2E7E",
   warnBg:"rgba(255,174,51,.12)", badBg:"rgba(255,77,94,.12)",
 };
@@ -205,7 +211,6 @@ const TEAM_COLOR = {
   MUN:"#DA291C", NEW:"#41535F", NFO:"#DD0000", TOT:"#132257", SUN:"#EB172B",
 };
 const teamColor = sn => TEAM_COLOR[sn] || "#6C7684";
-const POS_SV = {1:"Målvakt",2:"Försvarare",3:"Mittfältare",4:"Anfallare"};
 
 // FPL blockerar med jämna mellanrum anrop från moln-IP:n. Det är känt, det är
 // tillfälligt, och proxyn skickar webbläsarheaders just för att minska det —
@@ -1961,22 +1966,6 @@ function Pitch({players,fm,tb,bench,singleRow}){
         </div>
       ))}
     </div>
-  );
-}
-
-function PlayerChip({p,bench,fm}){
-  const e=estimateXp(p,fm);
-  return(
-    <span style={c.chip(bench)}>
-      <span style={c.pos(p.element_type)}>{POS[p.element_type]}</span>
-      {p.web_name}
-      <span style={{color:T.mut,fontSize:"11px"}}>£{(p.now_cost/10).toFixed(1)}</span>
-      <span style={{color:xpColor(e.xp),fontSize:"11px",fontWeight:"600"}}>{e.xp.toFixed(1)}</span>
-      {p.isCaptain&&<span style={{color:T.warn,fontSize:"11px"}}>©</span>}
-      {p.isVice&&<span style={{color:T.mut,fontSize:"11px"}}>v</span>}
-      {isInjured(p)&&<span style={c.injBadge}>❌</span>}
-      {!isInjured(p)&&isDoubtful(p)&&<span style={c.doubtBadge}>⚠</span>}
-    </span>
   );
 }
 

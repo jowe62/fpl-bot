@@ -673,15 +673,20 @@ Mätt värden 2026-10-30 (efter fix):
 |---|---|---|---|---|
 | `ink` #F2F5F8 | 18,22 | 17,28 | 15,94 | 14,26 |
 | `mut` #A7B0BD | 9,10 | 8,63 | 7,96 | 7,13 |
-| `dim` #818B98 | 5,77 | 5,48 | 5,05 | **4,52** |
+| `dim` #818B98 | 5,77 | 5,48 | **5,05** | (4,52) |
 | `disabled` #778396 | — | — | **4,54** | — |
+
+`overlay`-kolumnen står i parentes: **den ytan målas aldrig.** `T.overlay` var
+en oanvänd dubblett av `line` och togs bort i B9. Den svåraste yta som
+faktiskt förekommer är `card`. En tidigare version av det här avsnittet
+motiverade `dim` med overlay-värdet — det var fel.
 
 `dim` ligger medvetet på det **ljusaste som behövs** och inte ljusare: högre
 och tonen går inte att skilja från `mut`, och trestegshierarkin
 `ink`/`mut`/`dim` kollapsar till två.
 
-**Varning:** `T.neutral` står kvar på gamla `#6C7684` och är oanvänd. Används
-den någonsin återinförs felet — byt den då, mät inte om.
+`T.neutral` låg kvar på gamla `#6C7684` och var oanvänd — borttagen i B9,
+eftersom en oanvänd token med ett underkänt värde är en fälla.
 
 ### Så mäter du kontrast
 
