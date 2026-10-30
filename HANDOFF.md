@@ -31,6 +31,33 @@ Gratis felsökning som inte kostar kvot (börja alltid här):
 | Vad svarade boten sist? | `fpl-bot-lovat.vercel.app/api/odds` vid CDN-träff | 0 uppströms |
 | Funkar ändringen? | stubbad uppström i en lokal harness | 0 |
 
+### Kör boten i en riktig webbläsare
+
+Modellriggen nedan når inte UI-tillstånd — knappar, laddlägen, felvyer. Det
+gör en lokal server: en `http.createServer` som serverar `index.html` och
+proxar `/api/fpl?path=…` vidare till `fantasy.premierleague.com` (och övriga
+`/api/*` till den live-deployade boten). Då kör man den **riktiga** filen med
+**riktig** data.
+
+Två saker som kostade tid att komma på:
+
+1. **Byten-fliken kräver säljpriser**, som bara finns via bokmärkesknappen.
+   Knappen "Visa mina alternativ" renderas inte alls utan dem. Lösning: bygg
+   samma nyttolast som bokmärket och lägg den i URL-fragmentet —
+   `#team=<base64 av JSON>`, där JSON:en är `{entry, gw, bank, picks:[{element,
+   position, is_captain, is_vice_captain, selling_price}×15], raw:{…}}`.
+   `entry` måste finnas i `TEAMS`, annars kastar `validateLiveSquad`.
+   Base64:en avkodas som `decodeURIComponent(escape(atob(x)))`, så koda UTF-8-
+   byten: `Buffer.from(json,"utf8").toString("base64")`.
+2. **Felvägar testas med injicerat fel.** Servera en kopia av `index.html` där
+   en funktion kastar bakom en flagga — `if(window.__fault) throw …` — ladda
+   sidan, sätt `window.__fault=true` från konsolen, och utlös sedan just den
+   väg du vill pröva. Utan flaggan kastar den under första renderingen och du
+   ser bara den första kraschen, inte den du var ute efter.
+
+Kom ihåg: `localStorage` är per origin, så en ny port har ingen sparad trupp.
+Fragmentet måste med varje gång.
+
 ### Kör botens egen modell utanför webbläsaren
 
 **Det finns inget byggsteg, ingen typkontroll och ingen lint.** Ingen
@@ -796,6 +823,30 @@ du påstår något om rankningen.
    inte skickliga managers. Siffran blir meningsfull först när ranken hunnit
    stabiliseras.
 
+
+## Fel som inte får släcka boten
+
+`buildRecs` anropas från **tre** ställen, och alla tre måste hantera ett kast.
+Det gjorde de inte fram till 2026-10-30:
+
+| Ställe | Före | Efter |
+|---|---|---|
+| `TransferPlan` | `try/catch`, returnerade null | oförändrat |
+| `WeekTab` (`useMemo`) | inget skydd → **vit sida, hela appen** | fångar, bär felet, visar "Kan inte räkna på byten" |
+| `App.runTransfers` | `setAnalyzing(false)` efter anropet → knappen låst på "Analyserar..." för alltid | `finally`, felet i `c.errNote` |
+
+**Ett anrop i en `useMemo` är en rendering.** Kastar det river React upp hela
+trädet och sidan blir vit — det är inte en trasig panel, det är en trasig bot.
+Uppmätt i webbläsaren med ett injicerat kast.
+
+**Att fånga och returnera tomt är fel här.** Tomt `recs` ger `best = null`,
+och då säger Veckan "Gör ingen transfer" och briefen får
+`gorIngenTransfer: true` — ett självsäkert råd som ingen räknat fram. Felet
+ska bäras vidare och synas. Samma linje som säljpris-grinden redan höll.
+
+Notera att kastet i `buildRecs` (saknade säljpriser) **inte går att utlösa**:
+grinden `harSaljpriser([...starters,...bench])` i UI:t är exakt samma predikat.
+Skyddet gäller framtida kast, inte ett känt fel.
 
 ## Kända fallgropar
 - API-filer måste ligga i `api/` och sluta exakt på `.js`.

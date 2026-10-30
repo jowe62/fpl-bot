@@ -2211,8 +2211,24 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
   const cap = band?.kapten;
   const vice = band?.vice;
   const kanBytas = harSaljpriser([...starters,...bench]);
-  const recs = useMemo(()=>kanBytas?buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers):[],
-    [kanBytas,starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
+  // Ett kast har tog HELA appen med sig, inte bara den har panelen: anropet
+  // ligger i en useMemo mitt i renderingen, sa React river upp tradet och
+  // sidan blir vit. Reproducerat 2026-10-30 i webblasaren med ett injicerat
+  // kast i buildRecs - tom sida, felet bara i konsolen.
+  //
+  // Felet BARAS, det slukas inte. Ett tomt recs skulle gora best till null och
+  // vyn skulle saga "Gor ingen transfer" - ett sjalvsakert rad vi inte raknat
+  // fram. Samma linje som saljpris-grinden redan haller: hellre sager boten
+  // att den inte kan rakna.
+  const recsRes = useMemo(()=>{
+    if(!kanBytas) return {recs:[], fel:null};
+    try{ return {recs:buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers), fel:null}; }
+    catch(e){
+      console.error("[GlennOS] transferraden gick inte att rakna:", e.message);
+      return {recs:[], fel:String(e.message||e)};
+    }
+  },[kanBytas,starters,bench,bs,fm,tb,bank,gw,freeTransfers]);
+  const recs = recsRes.recs, recsFel = recsRes.fel;
 
   const best = recs.length ? recs.reduce((a,b)=>b.net>a.net?b:a) : null;
   const worthIt = best && best.verdict!=="nej";
@@ -2289,7 +2305,9 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
           bytIn: bringIn.map(p=>p.web_name),
           banka: dropOut.map(p=>p.web_name),
         } : null,
-        transfer: worthIt ? {
+        // null nar raden inte gick att rakna. "gorIngenTransfer" vore ett
+        // pastaende, och briefen far bara pastaenden vi kan peka ut.
+        transfer: recsFel ? null : worthIt ? {
           ut: best.out, in: best.inn,
           vinstIPoang: +best.gain.toFixed(1),
           kostarFyraPoang: best.cost>0,
@@ -2477,6 +2495,9 @@ function WeekTab({starters,bench,bs,fm,tb,bank,gw,freeTransfers,chipAvail,setTab
             räkna på dagspris skulle överskatta vad du har råd med och föreslå byten du
             inte kan göra. Boten gissar hellre inte.
           </div>
+        </> : recsFel ? <>
+          <div className="lead" style={c.weekLead}>Kan inte räkna på byten</div>
+          <div style={c.weekSub}>Alternativen gick inte att räkna: {recsFel}</div>
         </> : worthIt ? <>
           <div className="lead" style={c.weekLead}>Byt {best.out} mot {best.inn}</div>
           <div style={c.weekSub}>
@@ -3680,6 +3701,7 @@ function App(){
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState(null);
   const [analyzing,setAnalyzing]=useState(false);
+  const [recsFel,setRecsFel]=useState("");
   const [results,setResults]=useState(null);
   const [tab,setTab]=useState("week");
   const [menuOpen,setMenuOpen]=useState(false);
@@ -3812,12 +3834,26 @@ function App(){
     })();
   },[]);
 
+  // setAnalyzing(false) MASTE ligga i finally. Lag den efter anropet forut, sa
+  // ett kast fran buildRecs lamnade knappen i "Analyserar..." med disabled
+  // satt - permanent, eftersom inget annat aterstaller den - och felet syntes
+  // bara i konsolen. Reproducerat 2026-10-30 i webblasaren med ett injicerat
+  // kast: knappen stod kvar disabled i det laget tills sidan laddades om.
+  //
+  // SquadSuggestion.bygg() holl redan det har monstret. Nu gor alla tre
+  // anroparna av buildRecs det.
   function runTransfers(){
     setAnalyzing(true);
+    setRecsFel("");
     setTimeout(()=>{
-      const{bs,fm,tb,gw,bank,starters,bench,freeTransfers}=fplData;
-      setResults(buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers));
-      setAnalyzing(false);
+      try{
+        const{bs,fm,tb,gw,bank,starters,bench,freeTransfers}=fplData;
+        setResults(buildRecs(starters,bench,bs,fm,tb,bank,gw,freeTransfers));
+      }catch(e){
+        // Gamla kort far inte sta kvar bredvid ett felmeddelande.
+        setResults(null);
+        setRecsFel(String(e.message||e));
+      }finally{ setAnalyzing(false); }
     },400);
   }
 
@@ -3986,6 +4022,8 @@ function App(){
                 bokmärkesknappen. Att räkna på dagspris överskattar budgeten med upp till
                 0,4m per spelare, och då föreslår boten byten du inte kan göra.
               </div>}
+          {recsFel &&
+            <div style={{...c.errNote,marginTop:`${SP[4]}px`}}>Alternativen gick inte att räkna: {recsFel}</div>}
           {results&&<div style={{marginTop:"16px"}}>
             {results.every(r=>r.verdict==="nej") &&
               <div style={{...c.ftBox,borderColor:T.good,color:T.good}}>
