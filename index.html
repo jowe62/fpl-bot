@@ -286,6 +286,36 @@ function rewardLbl(xp){return xp>=6?"Hög":xp>=4?"Medel":"Låg";}
 // Speltid ar den faktor modellen sjalv kallar viktigast: en spelare som inte
 // spelar ger noll oavsett motstand. Det ar den risk som gar att belagga.
 function riskFromMins(m){return m>=0.85?"Låg":m>=0.60?"Medel":"Hög";}
+
+// ── Deadline ─────────────────────────────────────────────────────────────────
+// Hela botens syfte ar beslut FORE deadline, och fram till nu stod den
+// tidpunkten ingenstans i granssnittet - `deadline_time` lastes noll ganger i
+// index.html, bara i api/odds.js.
+//
+// FPL ger `deadline_time` (ISO) och `deadline_time_epoch` (SEKUNDER).
+// Verifierat mot live bootstrap 2026-10-30: GW9 gav 1793444400 respektive
+// 2026-10-31T11:00:00Z, alltsa samma tidpunkt. Epoch anvands har eftersom den
+// inte kan tolkas fel av nagon webblasare.
+function tidTill(deadlineMs, nu){
+  const kvar = deadlineMs - nu;
+  // Passerad deadline ar ett riktigt lage: FPL later `is_next` peka pa
+  // omgangen anda en stund efter att den stangt. Da ar radet inte langre
+  // nagot man kan handla pa, och siffran ska saga det - inte visa minus.
+  if(kvar <= 0) return {text:"Passerad", passerad:true, bradska:false};
+  const m = Math.floor(kvar/60000), t = Math.floor(m/60), d = Math.floor(t/24);
+  return {
+    text: d>=1 ? `${d}d ${t%24}t` : t>=1 ? `${t}t ${m%60}m` : `${m}m`,
+    passerad: false,
+    // Tre timmar kvar ar inte dekoration, det ar riktningen "gor det nu".
+    bradska: kvar < 3*3600*1000,
+  };
+}
+function deadlineStamp(ms){
+  try{
+    return new Date(ms).toLocaleString("sv-SE",
+      {weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  }catch{ return ""; }
+}
 function pdiffStr(a,b){const d=((a-b)/10).toFixed(1);return d>0?`+£${d}m`:d<0?`-£${Math.abs(d)}m`:"Samma pris";}
 function num(v){const n=parseFloat(v);return isNaN(n)?0:n;}
 
@@ -3727,6 +3757,9 @@ function App(){
   const [error,setError]=useState(null);
   const [analyzing,setAnalyzing]=useState(false);
   const [recsFel,setRecsFel]=useState("");
+  // Nedrakningen maste rakna ned. Halvminut racker: siffran visar hela
+  // minuter, sa tatare tick vore bara omrendering utan ny information.
+  const [nu,setNu]=useState(()=>Date.now());
   const [results,setResults]=useState(null);
   const [tab,setTab]=useState("week");
   const [menuOpen,setMenuOpen]=useState(false);
@@ -3753,6 +3786,11 @@ function App(){
   });
 
   useEffect(()=>{
+    const id=setInterval(()=>setNu(Date.now()),30000);
+    return ()=>clearInterval(id);
+  },[]);
+
+  useEffect(()=>{
     (async()=>{
       try{
         const [bs,entry]=await Promise.all([fplFetch("/bootstrap-static/"),fplFetch(`/entry/${TEAM_ID}/`)]);
@@ -3767,6 +3805,12 @@ function App(){
         if(!next)throw new Error("FPL har ingen kommande omgång (is_next saknas) — går inte att ge råd för nästa GW.");
         const gw=next.id;
         SEASON.nextGw=gw;
+        // Falt, inte antagande: bekraftat i live bootstrap 2026-10-30. Saknas
+        // det blir det null och raden sager "Deadline saknas" - samma linje
+        // som saljvardet redan haller. Ingen tyst gissning, och inget kast:
+        // en saknad nedrakning gor inte resten av radet fel.
+        const deadline = typeof next.deadline_time_epoch==="number"
+          ? next.deadline_time_epoch*1000 : null;
         const [picks,rawFx,history,liveGw,transfersLog]=await Promise.all([
           fplFetch(`/entry/${TEAM_ID}/event/${squadGw}/picks/`),
           fplFetch("/fixtures/"),
@@ -3853,7 +3897,7 @@ function App(){
         // Spara prognosen for den omgang vi planerar mot, sa nasta veckas
         // facit kan doma den.
         savePredictions(gw,[...starters,...bench],fm);
-        setFplData({bs,entry,fm,tb,gw,rawFx,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,sellValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
+        setFplData({bs,entry,fm,tb,gw,deadline,rawFx,squadGw:source.gw,bank,starters,bench,freeTransfers,chipAvail,squadValue,sellValue,history,review,live:liveOk?live:null,liveError:live&&live.error?live.error:null});
       }catch(e){setError({msg:e.message, status:e.status, path:e.path});}
       finally{setLoading(false);}
     })();
@@ -3904,7 +3948,7 @@ function App(){
       </div>
     </div>
   );
-  const{entry,gw,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,sellValue,history,review,live,liveError}=fplData;
+  const{entry,gw,deadline,squadGw,bank,starters,bench,fm,tb,bs,freeTransfers,chipAvail,squadValue,sellValue,history,review,live,liveError}=fplData;
 
   // Lagen som spelar den omgång vi planerar för, och vilka av dem som saknar
   // odds. Utan detta påstår badgen "odds-modell aktiv" även när halva
@@ -3961,12 +4005,30 @@ function App(){
         <div className="htitle" style={c.hdrTitle}>{entry.name}</div>
         <div style={c.hdrSub}>
           {entry.player_first_name} {entry.player_last_name} · GW{gw}
+          {deadline!=null && <> · deadline {deadlineStamp(deadline)}</>}
           {!TEAMS.find(t=>t.id===TEAM_ID)?.mine && <span style={{color:T.warn}}> · du tittar på ett annat lag</span>}
         </div>
         <div style={c.stats} className="kpi">
           <div style={c.stat}><div className="val" style={c.statVal}>#{entry.summary_overall_rank?.toLocaleString("sv-SE")}</div><div style={c.statLbl}>Rank</div></div>
           <div style={c.stat}><div className="val" style={c.statVal}>£{bank.toFixed(1)}m</div><div style={c.statLbl}>I banken</div></div>
           <div style={c.stat}><div className="val" style={c.statVal}>GW{gw}</div><div style={c.statLbl}>Nästa omgång</div></div>
+          {(()=>{
+            // Det enda talet i raden som ror sig, och det som hela boten
+            // handlar om: hinner du besluta? Saknas faltet sags det rakt ut,
+            // precis som for saljvardet bredvid.
+            if(deadline==null) return(
+              <div style={c.stat}>
+                <div className="val" style={{...c.statVal,color:T.dim}}>–</div>
+                <div style={c.statLbl}>Deadline saknas</div>
+              </div>);
+            const d=tidTill(deadline,nu);
+            return(
+              <div style={c.stat}>
+                <div className="val" style={{...c.statVal,
+                  color:d.passerad?T.dim:d.bradska?T.warn:T.ink}}>{d.text}</div>
+                <div style={c.statLbl}>{d.passerad?"Deadline":"Till deadline"}</div>
+              </div>);
+          })()}
           <div style={c.stat}><div className="val" style={c.statVal}>{freeTransfers}</div><div style={c.statLbl}>{freeTransfers===1?"Fri transfer":"Fria transfers"}</div></div>
           {squadValue!=null &&
             <div style={c.stat}><div className="val" style={c.statVal}>£{squadValue.toFixed(1)}m</div><div style={c.statLbl}>Truppvärde</div></div>}

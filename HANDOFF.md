@@ -535,6 +535,29 @@ vitt aldrig ovanpå datan, ytterlägen märkta i stället för varje tick.
 5. **Hotanalys** — xG, xA, `threat`, `creativity`. "Shots in box" och "big
    chances" ur guidens exempel finns inte i API:t.
 
+## Deadline
+
+`bootstrap.events[]` bär **tre** deadlinefält: `deadline_time` (ISO-sträng,
+UTC), `deadline_time_epoch` (**sekunder**, inte millisekunder) och
+`deadline_time_game_offset`. Verifierat mot live bootstrap 2026-10-30: GW9 gav
+`1793444400` respektive `2026-10-31T11:00:00Z` — samma tidpunkt, så fälten är
+utbytbara. Boten använder epoch, eftersom den inte kan tolkas fel av någon
+webbläsare.
+
+Visas på två ställen: nedräkning som nyckeltal (**Till deadline**) och den
+absoluta tidpunkten i huvudraden. Under tre timmar kvar färgas siffran
+`T.warn`.
+
+**`is_next` kan peka på en omgång vars deadline redan passerat.** Därför är
+"passerad" ett eget läge i `tidTill` i stället för ett negativt tal — rådet
+går då inte längre att handla på. Antag inte att `is_next` flyttas i samma
+sekund som deadline löper ut.
+
+Nedräkningen drivs av en `setInterval` på 30 s i `App` som bara sätter en
+tidsstämpel. Det ger en omrendering varje halvminut; kontrollerat att inget
+tungt hänger i den vägen — `buildChipAdvice` är det enda omemoiserade och
+kostar 4,2 ms. `buildPlan` och `buildRecs` ligger i `useMemo`.
+
 ## Färg och kontrast — regler som är uppmätta
 
 **Varje textton ska klara WCAG AA (4,5:1) mot ALLA fyra ytorna** — `bg`,

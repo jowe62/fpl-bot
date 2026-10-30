@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`) |
-| **Kvar** | B6, B7, B8, B9, B10, B11, B12, B13, B14, B15 |
+| **Klara** | **B1** (`430f2aa`), **B2** (`ee2defe`), **B3** (`1e40f35`), **B4** (`fb61d56`), **B5** (`ceb996b`), **B6** |
+| **Kvar** | B7, B8, B9, B10, B11, B12, B13, B14, B15 |
 
 Ordningen är Johns. Han plockar ID, ett i taget.
 
 Utredningen är rapporten nedan. **Åtgärdade ID ändrar filer i appen** — B1, B2,
-B3, B4 och B5 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
+B3, B4, B5 och B6 har alla rört `index.html`. Raden här påstod tidigare att inget ändrats;
 det var sant när rapporten skrevs och fel därefter.
 
 **Om underlaget.** `/review/screens/` fanns inte på disk. Skärmbilderna kom i
@@ -84,7 +84,7 @@ Fragmentet når aldrig en server.
 | ~~B3~~ | Bugg / död kod | ~~Medel~~ **KLAR** `1e40f35` | Free Hits blankvärde räknades mot fel omgång och blev alltid 0 för `g===gw`. **Allvaret var dock överskattat: talet nådde aldrig användaren.** | `index.html:1297` värderade blanks med `estimateXpAt(p,fm,**gw**,false)` i en loop över `g`. En blank spelare saknar per definition match i sin egen omgång, så raden gav 0. Kört med syntetisk blank (Haalands lag utan match i GW9): summan 0,000 trots `estimateXpLong` 3,15 xP/omgång. **Men `fh` lästes aldrig** — `line("fh", …)` anropas inte (bara `line("bb")` och `line("tc")`), fh-kortet sätter `gain:null` och visar `now.blanks` i stället. Inget utanför `index.html` läser `fh` heller. | Ta bort den döda summan, behåll antalet. `freeHitGain` är den enda vägen till Free Hits värde. | **Ja**, kört före och efter |
 | ~~B4~~ | Bugg / tillstånd | ~~Medel~~ **KLAR** `fb61d56` | Ett kast ur `buildRecs` hanterades inte. **Rapporten hittade ett av tre anropsställen, och inte det värsta: ett kast i `WeekTab` tar hela appen med sig — vit sida.** | Kört i webbläsaren mot en lokal kopia med ett injicerat kast i `buildRecs`. (a) `WeekTab:2214`, `useMemo` mitt i renderingen utan `try/catch` → **tom sida**, hela boten, felet bara i konsolen. (b) `App.runTransfers:3816`, `setAnalyzing(false)` efter anropet → knappen fast på "Analyserar..." med `disabled:true`, verifierat i DOM:en, kvar tills sidan laddas om. (c) `TransferPlan:2161` hade redan `try/catch` — mönstret var alltså inkonsekvent på tre ställen i samma fil. **Det går inte att utlösa idag:** grinden `harSaljpriser([...starters,...bench])` är exakt samma predikat som kastet på rad 1653, så säljpris-kastet är onåbart. Happy path verifierad: tre kort renderas, konsolen ren. | `try/catch` på alla tre ställena, `setAnalyzing(false)` i `finally`, och felet visas i UI:t. | **Ja**, kört i webbläsaren, före och efter |
 | ~~B5~~ | Tillgänglighet | ~~Medel~~ **KLAR** `ceb996b` | `T.dim` och `T.disabled` klarar inte WCAG AA. **Mätningen hittade fyra fel till som rapporten missade — ett av dem allvarligt: skadekorten är vit text på vit platta.** | Mätt i DOM:en, alla tio flikar och båda lagen: varje textnod, dess verkliga bakgrund (alfa-komposterad uppåt), storlek och vikt, mot AA-tröskeln. **102 fall på Veckan ensam.** Rapportens siffror stämde exakt (dim 3,79:1 mot card, 4,33:1 mot bg; disabled 2,39:1). Nytt: (a) `InjuryTab` sätter en **opak** `#FAEFEC` som bakgrund i en mörk app — namnet låg på **1,03:1**, i praktiken osynligt; (b) `dim` på fixturebrickornas färgtoner, 2,81:1 vid 8,5 px i `pFxOpp` och 3,93:1 i `FixtureTicker` — filens värsta värden; (c) `POS_TINT[4]` (ANF) 4,44:1 vid 9 px. Rapportens egen fix `#7C8694` hade **inte räckt**: 4,23:1 mot `overlay`. | `dim`→`#818B98`, `disabled`→`#778396`, `dim`→`mut` på de två tonade brickorna, ANF→`#FF5C9A`, och `#FAEFEC`→ny `T.badBg`. | **Ja**, mätt i webbläsaren före och efter |
-| **B6** | UX | Medel | Deadline visas aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**. Fältet finns i bootstrap och används i `api/odds.js` men läses aldrig i klienten. Fredagskollen säger "sedan 29 okt. 20:57" men aldrig hur lång tid som är kvar. | Visa deadline och nedräkning i nyckeltalsraden, intill "NÄSTA OMGÅNG". |  **Ja**, grep |
+| ~~B6~~ | UX | ~~Medel~~ **KLAR** | Deadline visades aldrig, trots att hela botens syfte är beslut före deadline. | `grep -c deadline_time index.html` → **0**; fältet läses bara i `api/odds.js`. Bekräftat mot **live** bootstrap 2026-10-30: `deadline_time_epoch` 1793444400 = `deadline_time` 2026-10-31T11:00:00Z, alltså GW9-deadline kl 12:00 svensk tid — 23½ timme bort och ingenstans i gränssnittet. | Nedräkning som nyckeltal intill NÄSTA OMGÅNG, plus den absoluta tidpunkten i huvudraden. | **Ja**, kört i webbläsaren: alla tre lägen plus tickandet |
 | **B7** | Kod | Medel | `useEffect` för iframe-höjd saknar beroendelista och river upp en `ResizeObserver` vid varje omrendering. | `index.html:3562-3570`, blocket slutar på `});` och inte `},[]);`. De fem andra `useEffect` i filen har alla `[]`. Just den här komponenten har orsakat en höjdåterkopplingsloop i iframen tidigare. | `},[])`. Observern behöver bara skapas en gång. | **Ja**, läst |
 | **B8** | Säkerhet | Medel | `/api/fpl` är en öppen proxy som vem som helst kan använda. | `api/fpl.js:3` sätter ihop `path` från query utan validering, och rad 10 sätter `Access-Control-Allow-Origin: *`. Värden är hårdkodad i strängen, så det går **inte** att nå en annan domän — men vem som helst kan använda kontots Vercel-funktion som gratis FPL-proxy. | Tillåt bara en lista av kända sökvägsmönster, och begränsa `ACAO` till den egna domänen. | **Ja**, läst. Att värden inte går att byta är verifierat genom att basen är en literal |
 | **B9** | Kod | Låg | Död kod. | `PlayerChip` definieras på rad 1775 och förekommer ingen annanstans. `POS_SV` definieras på rad 194 och används aldrig. Båda verifierade med ordgräns-grep över hela filen. | Ta bort. | **Ja**, grep |
@@ -124,7 +124,7 @@ Fragmentet når aldrig en server.
   att skickas vidare råa. Det följer projektets egen regel.
 - **Modellen mäts mot en baslinje** i Facit-fliken, vilket är rätt sätt.
 
-## Vad som gjordes med B1–B5
+## Vad som gjordes med B1–B6
 
 **B1, `430f2aa`.** Bench Boost dras nu med auto-bytenas väntevärde.
 `vinst_k = xP_k * (1 - P(N >= k))` där N är antalet uteblivna startande
@@ -192,6 +192,31 @@ ytor. Ligger texten på en färgton är `mut` den enda tillåtna tonen.**
 Noterat men inte ändrat: `T.neutral` står kvar på gamla `#6C7684` och är
 **oanvänd** (0 träffar). Den hör till **B9**, men är en fälla — används den
 någonsin återinförs felet.
+
+**B6.** Nyckeltalsraden har fått **Till deadline** med en nedräkning, och
+huvudraden den absoluta tidpunkten (`John Wennerqvist · GW9 · deadline lör
+31 okt. 12:00`). Värdet läses ur `deadline_time_epoch`, som bekräftats mot
+live bootstrap — inte antagits.
+
+Tre lägen, alla körda i webbläsaren mot en kopia där deadline går att skjuta:
+normalt (`23t 28m`), **brådska** under tre timmar (`1t 34m` i `T.warn`,
+avläst `rgb(255,174,51)`) och **passerad** (`Passerad`, etiketten byter till
+`DEADLINE`). Att passerad är ett eget läge är inte pynt: FPL låter `is_next`
+peka på omgången en stund efter att den stängt, och då ska siffran säga det i
+stället för att visa minus.
+
+Saknas fältet blir det `–` / `DEADLINE SAKNAS` och huvudraden utelämnar
+tidpunkten — samma linje som säljvärdet bredvid redan höll, alltså synligt
+och inte tyst.
+
+**Nedräkningen räknar faktiskt ned**, vilket mättes i stället för att antas:
+`23t 30m → 23t 29m → 23t 28m` över 90 sekunder. Ticken är 30 s. Den kostnaden
+kontrollerades också: `buildChipAdvice` är det enda tunga som körs omemoiserat
+i en renderingsväg, och det tar **4,2 ms**. Elva gränsfall i `tidTill` körda
+separat, från tre dygn ned till passerad.
+
+Kontrastsvepet från **B5** kördes om efteråt: fortfarande 0 fall på alla tio
+flikarna.
 
 Nedskriven begränsning: `(1 - xMins)` är inte sannolikheten att kaptenen spelar
 noll minuter, eftersom xMins är en minutandel. Håller för etablerade
